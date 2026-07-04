@@ -10,10 +10,11 @@ var T9 = (function () {
     w: '9', x: '9', y: '9', z: '9'
   };
 
-  function wordToT9Code(word) {
+  function wordToT9Code(text) {
     var code = '';
-    for (var i = 0; i < word.length; i++) {
-      code += LETTER_TO_DIGIT[word[i].toLowerCase()];
+    for (var i = 0; i < text.length; i++) {
+      var digit = LETTER_TO_DIGIT[text[i].toLowerCase()];
+      if (digit) code += digit;
     }
     return code;
   }
