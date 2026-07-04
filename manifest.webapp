@@ -1,0 +1,15 @@
+{
+  "name": "T9 Wizard",
+  "description": "Typing-combat game using a T9 numeric keypad",
+  "launch_path": "/index.html",
+  "type": "web",
+  "icons": {
+    "56": "/icons/icon-56.png",
+    "112": "/icons/icon-112.png"
+  },
+  "developer": {
+    "name": "T9 Wizard",
+    "url": "https://example.com"
+  },
+  "default_locale": "en"
+}
