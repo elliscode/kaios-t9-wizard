@@ -9,6 +9,13 @@ var Render = (function () {
     ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
   }
 
+  // While paused, state.mode is 'paused' — this recovers "what was actually
+  // happening" (playing/transition/boss) so the frozen frame still renders
+  // as whatever it was the instant before pausing, rather than blanking out.
+  function effectiveMode(state) {
+    return state.mode === 'paused' ? state.pausedFromMode : state.mode;
+  }
+
   // Converts a count of typed digits into a character index into `display`,
   // since a sentence's displayed string can contain spaces that don't count
   // as typed digits (spaces require no keypress). Also absorbs any spaces
@@ -88,7 +95,7 @@ var Render = (function () {
     ctx.strokeRect(entity.x - 2, entity.y - 2, entity.width + 4, entity.height + 4);
   }
 
-  function renderEnemies(ctx, enemies, buffer, lockedEnemyId) {
+  function renderEnemies(ctx, enemies, buffer, lockedEnemyId, hideText) {
     enemies.forEach(function (enemy) {
       var isLocked = enemy.id === lockedEnemyId;
       var highlightLen = isLocked ? buffer.length : 0;
@@ -96,11 +103,11 @@ var Render = (function () {
       ctx.fillStyle = enemy.color;
       ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
       if (isLocked) drawLockOutline(ctx, enemy);
-      drawTextWithHighlight(ctx, enemy, enemy.word, highlightLen);
+      if (!hideText) drawTextWithHighlight(ctx, enemy, enemy.word, highlightLen);
     });
   }
 
-  function renderBoss(ctx, boss, buffer, lockedEnemyId) {
+  function renderBoss(ctx, boss, buffer, lockedEnemyId, hideText) {
     var isLocked = boss.id === lockedEnemyId;
     var highlightLen = isLocked ? buffer.length : 0;
 
@@ -118,7 +125,7 @@ var Render = (function () {
     ctx.fillStyle = boss.color;
     ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
     if (isLocked) drawLockOutline(ctx, boss);
-    drawTextWithHighlight(ctx, boss, boss.sentence, highlightLen, BOSS_SENTENCE_WRAP_CHARS);
+    if (!hideText) drawTextWithHighlight(ctx, boss, boss.sentence, highlightLen, BOSS_SENTENCE_WRAP_CHARS);
   }
 
   function renderPlayer(ctx, player) {
@@ -141,7 +148,7 @@ var Render = (function () {
     ctx.textBaseline = 'top';
     ctx.textAlign = 'right';
     var label;
-    if (state.mode === 'boss') {
+    if (effectiveMode(state) === 'boss') {
       label = 'W' + state.boss.world + ' BOSS';
     } else {
       var world = Game.worldOfWave(state.wave);
@@ -172,7 +179,9 @@ var Render = (function () {
     ctx.textAlign = 'center';
     ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 - 24);
     ctx.font = '10px monospace';
-    ctx.fillText('Reached wave ' + state.wave, CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2);
+    var world = Game.worldOfWave(state.wave);
+    var wiw = Game.waveInWorld(state.wave);
+    ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2);
     ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
@@ -187,6 +196,21 @@ var Render = (function () {
     ctx.font = '10px monospace';
     ctx.fillText('All 5 worlds cleared', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2);
     ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 + 18);
+    ctx.textAlign = 'left';
+  }
+
+  function renderPauseOverlay(ctx, state) {
+    // Text sits near the top/bottom of the play field, well clear of the
+    // transition overlay's centered text — the two can legitimately be
+    // drawn on top of each other (pausing mid wave-transition announcement).
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', CANVAS_WIDTH / 2, 30);
+    ctx.font = '10px monospace';
+    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT - 30);
     ctx.textAlign = 'left';
   }
 
@@ -207,18 +231,20 @@ var Render = (function () {
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     renderPlayField(ctx);
 
-    if (state.mode === 'boss') {
-      renderBoss(ctx, state.boss, InputEngine.getBuffer(), InputEngine.getLockedEnemyId());
+    var isPaused = state.mode === 'paused';
+    if (effectiveMode(state) === 'boss') {
+      renderBoss(ctx, state.boss, InputEngine.getBuffer(), InputEngine.getLockedEnemyId(), isPaused);
     } else {
-      renderEnemies(ctx, state.enemies, InputEngine.getBuffer(), InputEngine.getLockedEnemyId());
+      renderEnemies(ctx, state.enemies, InputEngine.getBuffer(), InputEngine.getLockedEnemyId(), isPaused);
     }
     renderPlayer(ctx, state.player);
     renderHUD(ctx, state);
 
     if (state.mode === 'gameover') renderGameOverOverlay(ctx, state);
     if (state.mode === 'menu') renderMenuOverlay(ctx);
-    if (state.mode === 'transition') renderTransitionOverlay(ctx, state);
+    if (effectiveMode(state) === 'transition') renderTransitionOverlay(ctx, state);
     if (state.mode === 'win') renderWinOverlay(ctx, state);
+    if (state.mode === 'paused') renderPauseOverlay(ctx, state);
   }
 
   return {

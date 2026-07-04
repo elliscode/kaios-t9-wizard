@@ -3,11 +3,12 @@ var Game = (function () {
   var CANVAS_HEIGHT = Layout.CANVAS_HEIGHT;
   var PLAY_FIELD_HEIGHT = Layout.PLAY_FIELD_HEIGHT;
 
-  var STATE = { MENU: 'menu', PLAYING: 'playing', TRANSITION: 'transition', BOSS: 'boss', GAMEOVER: 'gameover', WIN: 'win' };
+  var STATE = { MENU: 'menu', PLAYING: 'playing', TRANSITION: 'transition', BOSS: 'boss', PAUSED: 'paused', GAMEOVER: 'gameover', WIN: 'win' };
 
   var ENEMIES_PER_WAVE = 20;
   var STARTING_LIVES = 3;
   var TRANSITION_DURATION_MS = 2000;
+  var AUTO_PAUSE_THRESHOLD_MS = 500; // a frame gap this large means the tab was backgrounded/suspended
 
   // Tunable, NOT wave-scaled: only word length scales with wave/world per spec.
   var SPAWN_INTERVAL_MS = 1800;
@@ -43,22 +44,22 @@ var Game = (function () {
   }
 
   // TUNABLE — length 4 was the reference "feels right" speed (30px/sec, the
-  // cap); every 2 letters longer, an enemy falls 3px/sec slower, since a
-  // longer word takes more keystrokes to clear. Odd lengths interpolate.
+  // cap); longer words take longer to fall to make the game fair
   function enemyFallSpeedForLength(len) {
-    return Math.min(30, 36 - 1.5 * len);
+    return Math.min(30, 30 - ((29/9) * (len - 4)));
   }
 
   // TUNABLE — boss sentences fall slower than regular enemies since they're
   // much longer to type; later worlds' bosses fall slightly slower still to
   // offset their longer sentences and larger health pools.
   function bossSentenceSpeedForWorld(world) {
-    return 11 - world;
+    return 11 - (world * 2);
   }
 
   function makeInitialState() {
     return {
       mode: STATE.MENU,
+      pausedFromMode: null,
       enemies: [],
       boss: null,
       transition: null,
@@ -299,11 +300,33 @@ var Game = (function () {
     enterTransition(false);
   }
 
+  // The exact three modes that advance time — the only ones that can be
+  // paused, and the only ones the auto-pause dt-check needs to guard.
+  // pauseGame() must only ever be called while this is true, so it never
+  // stomps pausedFromMode with 'paused' itself; both call sites (loop()'s
+  // auto-pause and handleMenuKey()'s manual pause) already respect this.
+  function isActiveSimulationMode() {
+    return state.mode === STATE.PLAYING || state.mode === STATE.TRANSITION || state.mode === STATE.BOSS;
+  }
+
+  function pauseGame() {
+    state.pausedFromMode = state.mode;
+    state.mode = STATE.PAUSED;
+  }
+
+  function resumeGame() {
+    state.mode = state.pausedFromMode;
+    state.pausedFromMode = null;
+  }
+
   function handleMenuKey() {
     if (state.mode === STATE.MENU || state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
       resetGame();
+    } else if (state.mode === STATE.PAUSED) {
+      resumeGame();
+    } else if (isActiveSimulationMode()) {
+      pauseGame();
     }
-    // Ignored during TRANSITION/PLAYING/BOSS — '1' has no gameplay meaning there.
   }
 
   function handleDigitKey(digit) {
@@ -334,8 +357,15 @@ var Game = (function () {
     var dt = timestamp - state.lastTimestamp;
     state.lastTimestamp = timestamp;
 
-    if (state.mode === STATE.PLAYING || state.mode === STATE.TRANSITION || state.mode === STATE.BOSS) {
-      update(dt);
+    if (isActiveSimulationMode()) {
+      if (dt > AUTO_PAUSE_THRESHOLD_MS) {
+        // A gap this large means the tab was backgrounded/suspended — pause
+        // instead of applying that huge delta (which would otherwise jump
+        // enemies/boss forward or fire a burst of catch-up spawns).
+        pauseGame();
+      } else {
+        update(dt);
+      }
     }
     Render.renderFrame(ctx, state);
 
@@ -345,6 +375,15 @@ var Game = (function () {
   function init(canvas) {
     ctx = canvas.getContext('2d');
     state = makeInitialState();
+    // Pause proactively the instant the page is hidden, rather than relying
+    // solely on next-frame dt measurement — closes a race where a "resume"
+    // keypress right as the tab regains focus could be processed before the
+    // huge-dt frame has a chance to self-pause (forcing a double press).
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && isActiveSimulationMode()) {
+        pauseGame();
+      }
+    });
     requestAnimationFrame(loop);
   }
 
