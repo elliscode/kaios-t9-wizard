@@ -11,7 +11,6 @@ var Game = (function () {
 
   // Tunable, NOT wave-scaled: only word length scales with wave/world per spec.
   var SPAWN_INTERVAL_MS = 1800;
-  var ENEMY_FALL_SPEED = 30; // px/sec
   var ENEMY_SPEED_JITTER = 0.2; // +/-20% cosmetic randomness only
 
   var MIN_BLOCK_WIDTH = 28;
@@ -21,7 +20,6 @@ var Game = (function () {
   var BASE_BOSS_HEALTH_SEGMENTS = 3; // tunable — world N has BASE + (N-1)*2 segments
   var BOSS_WIDTH = 180;
   var BOSS_HEIGHT = 32;
-  var BOSS_SENTENCE_SPEED = 15; // px/sec, slower than ENEMY_FALL_SPEED
 
   var WORLD_LENGTH_RANGES = {
     1: { min: 2, max: 6 },
@@ -42,6 +40,20 @@ var Game = (function () {
 
   function waveInWorld(wave) {
     return ((wave - 1) % WAVES_PER_WORLD) + 1;
+  }
+
+  // TUNABLE — length 4 was the reference "feels right" speed (30px/sec, the
+  // cap); every 2 letters longer, an enemy falls 3px/sec slower, since a
+  // longer word takes more keystrokes to clear. Odd lengths interpolate.
+  function enemyFallSpeedForLength(len) {
+    return Math.min(30, 36 - 1.5 * len);
+  }
+
+  // TUNABLE — boss sentences fall slower than regular enemies since they're
+  // much longer to type; later worlds' bosses fall slightly slower still to
+  // offset their longer sentences and larger health pools.
+  function bossSentenceSpeedForWorld(world) {
+    return 11 - world;
   }
 
   function makeInitialState() {
@@ -100,7 +112,8 @@ var Game = (function () {
     var width = Math.max(MIN_BLOCK_WIDTH, word.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
 
     var x = findNonOverlappingX(width);
-    var speed = ENEMY_FALL_SPEED * (1 + (Math.random() * 2 - 1) * ENEMY_SPEED_JITTER);
+    var baseSpeed = enemyFallSpeedForLength(word.length);
+    var speed = baseSpeed * (1 + (Math.random() * 2 - 1) * ENEMY_SPEED_JITTER);
     var color = Colors.colorForWordLength(word.length);
 
     state.enemies.push(Enemy.createEnemy({
@@ -224,7 +237,7 @@ var Game = (function () {
       width: BOSS_WIDTH,
       height: BOSS_HEIGHT,
       color: Colors.bossColorForWorld(world),
-      speed: BOSS_SENTENCE_SPEED
+      speed: bossSentenceSpeedForWorld(world)
     });
     spawnBossSentence(state.boss);
   }

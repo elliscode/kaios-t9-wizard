@@ -2,6 +2,7 @@ var Render = (function () {
   var CANVAS_WIDTH = Layout.CANVAS_WIDTH;
   var CANVAS_HEIGHT = Layout.CANVAS_HEIGHT;
   var PLAY_FIELD_HEIGHT = Layout.PLAY_FIELD_HEIGHT;
+  var BOSS_SENTENCE_WRAP_CHARS = 36;
 
   function renderPlayField(ctx) {
     ctx.fillStyle = '#111';
@@ -29,22 +30,56 @@ var Render = (function () {
     return i;
   }
 
-  function drawTextWithHighlight(ctx, entity, display, typedCount) {
+  // Greedy word-wrap that keeps track of each line's start index into the
+  // original (unwrapped) string, so a highlight boundary computed against
+  // the full string can be mapped back onto whichever line it falls in.
+  // Words are never split; a wrap only ever replaces a space with a line
+  // break, so total character count (spaces aside) is preserved.
+  function wrapTextWithIndices(text, maxCharsPerLine) {
+    var words = text.split(' ');
+    var lines = [];
+    var cursor = 0;
+    var lineStart = 0;
+    var lineText = '';
+    words.forEach(function (word) {
+      var wordStart = cursor;
+      var candidate = lineText.length === 0 ? word : lineText + ' ' + word;
+      if (candidate.length > maxCharsPerLine && lineText.length > 0) {
+        lines.push({ text: lineText, startIndex: lineStart });
+        lineText = word;
+        lineStart = wordStart;
+      } else {
+        lineText = candidate;
+      }
+      cursor += word.length + 1;
+    });
+    if (lineText.length > 0) lines.push({ text: lineText, startIndex: lineStart });
+    return lines;
+  }
+
+  var LINE_HEIGHT = 13;
+
+  function drawTextWithHighlight(ctx, entity, display, typedCount, maxCharsPerLine) {
     ctx.font = '11px monospace';
     ctx.textBaseline = 'top';
     var boundary = displayHighlightBoundary(display, typedCount);
-    var typed = display.slice(0, boundary);
-    var rest = display.slice(boundary);
-    var fullWidth = ctx.measureText(display).width;
-    var startX = entity.x + entity.width / 2 - fullWidth / 2;
-    var y = entity.y + entity.height + 2;
+    var lines = wrapTextWithIndices(display, maxCharsPerLine || display.length);
 
-    ctx.fillStyle = '#2ecc71';
-    ctx.fillText(typed, startX, y);
-    var typedWidth = ctx.measureText(typed).width;
+    lines.forEach(function (line, i) {
+      var localBoundary = Math.max(0, Math.min(line.text.length, boundary - line.startIndex));
+      var typed = line.text.slice(0, localBoundary);
+      var rest = line.text.slice(localBoundary);
+      var fullWidth = ctx.measureText(line.text).width;
+      var startX = entity.x + entity.width / 2 - fullWidth / 2;
+      var y = entity.y + entity.height + 2 + i * LINE_HEIGHT;
 
-    ctx.fillStyle = '#fff';
-    ctx.fillText(rest, startX + typedWidth, y);
+      ctx.fillStyle = '#2ecc71';
+      ctx.fillText(typed, startX, y);
+      var typedWidth = ctx.measureText(typed).width;
+
+      ctx.fillStyle = '#fff';
+      ctx.fillText(rest, startX + typedWidth, y);
+    });
   }
 
   function drawLockOutline(ctx, entity) {
@@ -83,7 +118,7 @@ var Render = (function () {
     ctx.fillStyle = boss.color;
     ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
     if (isLocked) drawLockOutline(ctx, boss);
-    drawTextWithHighlight(ctx, boss, boss.sentence, highlightLen);
+    drawTextWithHighlight(ctx, boss, boss.sentence, highlightLen, BOSS_SENTENCE_WRAP_CHARS);
   }
 
   function renderPlayer(ctx, player) {
