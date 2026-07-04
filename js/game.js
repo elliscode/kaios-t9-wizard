@@ -46,14 +46,14 @@ var Game = (function () {
   // TUNABLE — length 4 was the reference "feels right" speed (30px/sec, the
   // cap); longer words take longer to fall to make the game fair
   function enemyFallSpeedForLength(len) {
-    return Math.min(30, 30 - ((29/9) * (len - 4)));
+    return Math.min(30, 120 / len);
   }
 
   // TUNABLE — boss sentences fall slower than regular enemies since they're
   // much longer to type; later worlds' bosses fall slightly slower still to
   // offset their longer sentences and larger health pools.
   function bossSentenceSpeedForWorld(world) {
-    return 11 - (world * 2);
+    return 11 / world;
   }
 
   function makeInitialState() {
@@ -68,6 +68,7 @@ var Game = (function () {
       wave: 1,
       spawnedThisWave: 0,
       resolvedThisWave: 0,
+      usedSentences: {},
       spawnAccumulator: 0,
       lastTimestamp: null,
       player: {
@@ -216,8 +217,12 @@ var Game = (function () {
   }
 
   function spawnBossSentence(boss) {
-    var activeSet = { has: function (s) { return s === boss.sentence; } };
-    boss.sentence = SentenceBank.pickSentence(boss.world, activeSet);
+    // Excludes every sentence shown anywhere in this run (not just this
+    // boss), so the same line never repeats across a single playthrough.
+    // Reset only happens via a fresh makeInitialState() on resetGame().
+    var usedSet = { has: function (s) { return !!state.usedSentences[s]; } };
+    boss.sentence = SentenceBank.pickSentence(boss.world, usedSet);
+    state.usedSentences[boss.sentence] = true;
     boss.code = T9.wordToT9Code(boss.sentence);
     boss.y = -boss.height;
   }
