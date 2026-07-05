@@ -17,7 +17,7 @@ var SENTENCES_BY_TIER = {
     "there is magic in it",
     "i shall want to live",
     "poverty is not a vice",
-    "in love",
+    "seems formed in love",
     "hateful bishop",
     "miss elizabeth bennet",
     "all thats nonsense",
