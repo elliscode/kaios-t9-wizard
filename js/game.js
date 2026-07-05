@@ -22,6 +22,18 @@ var Game = (function () {
   var BOSS_WIDTH = 180;
   var BOSS_HEIGHT = 32;
 
+  // Powerups — each type's probability is independently rolled per player-typed
+  // kill, tunable individually here.
+  var POWERUP_PROBABILITIES = { extraLife: 1 / 100, halfSpeed: 1 / 100, halfLength: 1 / 100, screenWipe: 1 / 100 };
+  var POWERUP_COLORS = { extraLife: 'white', halfSpeed: 'lightblue', halfLength: 'lightcoral', screenWipe: 'khaki' };
+  var POWERUP_DISPLAY_NAMES = { extraLife: 'EXTRA LIFE', halfSpeed: 'HALF SPEED', halfLength: 'SHORT WORDS', screenWipe: 'SCREEN WIPE' };
+  var POWERUP_EFFECT_DURATION_MS = 10000;
+  var POWERUP_FLASH_DURATION_MS = 2000;
+  var POWERUP_RISE_SPEED = 20; // px/sec, tunable
+  var POWERUP_SIZE = 24; // small fixed square; icons come later, no word-length sizing needed
+  var POWERUP_CODE_MIN_LEN = 2;
+  var POWERUP_CODE_MAX_LEN = 3;
+
   var WORLD_LENGTH_RANGES = {
     1: { min: 2, max: 6 },
     2: { min: 4, max: 8 },
@@ -61,14 +73,18 @@ var Game = (function () {
       mode: STATE.MENU,
       pausedFromMode: null,
       enemies: [],
+      powerups: [],
       boss: null,
       transition: null,
-      nextEnemyId: 1,
+      nextEntityId: 1,
       lives: STARTING_LIVES,
       wave: 1,
       spawnedThisWave: 0,
       resolvedThisWave: 0,
       usedSentences: {},
+      halfSpeedRemainingMs: 0,
+      halfLengthRemainingMs: 0,
+      powerupFlash: null,
       spawnAccumulator: 0,
       lastTimestamp: null,
       player: {
@@ -110,16 +126,25 @@ var Game = (function () {
     };
 
     var word = WordBank.pickWord(range.minLen, range.maxLen, activeWordsSet);
+
+    // While the half-length powerup is active, spawn a genuinely shorter
+    // real word instead — re-picking (not truncating the one just chosen)
+    // so it always reads as a complete word, never a cut-off fragment.
+    // Existing on-screen enemies are left untouched (see collectPowerup).
+    if (state.halfLengthRemainingMs > 0) {
+      var halvedLen = Math.max(2, Math.floor(word.length / 2));
+      word = WordBank.pickWord(halvedLen, halvedLen, activeWordsSet);
+    }
+
     var code = T9.wordToT9Code(word);
     var width = Math.max(MIN_BLOCK_WIDTH, word.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
 
     var x = findNonOverlappingX(width);
-    var baseSpeed = enemyFallSpeedForLength(word.length);
-    var speed = baseSpeed * (1 + (Math.random() * 2 - 1) * ENEMY_SPEED_JITTER);
+    var jitteredBaseSpeed = enemyFallSpeedForLength(word.length) * (1 + (Math.random() * 2 - 1) * ENEMY_SPEED_JITTER);
     var color = Colors.colorForWordLength(word.length);
 
     state.enemies.push(Enemy.createEnemy({
-      id: state.nextEnemyId++,
+      id: state.nextEntityId++,
       word: word,
       code: code,
       x: x,
@@ -127,7 +152,7 @@ var Game = (function () {
       width: width,
       height: BLOCK_HEIGHT,
       color: color,
-      speed: speed
+      baseSpeed: jitteredBaseSpeed
     }));
   }
 
@@ -143,8 +168,13 @@ var Game = (function () {
 
   function updateEnemies(dt) {
     var dtSeconds = dt / 1000;
+    // Effective speed is computed fresh every frame from an immutable
+    // baseSpeed rather than mutating .speed on collection — so repeat
+    // half-speed pickups can never compound toward zero, and speed reverts
+    // to normal the instant the effect's duration elapses.
+    var multiplier = state.halfSpeedRemainingMs > 0 ? 0.5 : 1;
     state.enemies.forEach(function (e) {
-      e.y += e.speed * dtSeconds;
+      e.y += e.baseSpeed * multiplier * dtSeconds;
     });
   }
 
@@ -171,6 +201,11 @@ var Game = (function () {
 
   function enterTransition(isBoss) {
     state.enemies = [];
+    // Any not-yet-collected powerup is discarded at a wave-transition/boss
+    // boundary — otherwise it would freeze mid-flight (invisible, uncollectible)
+    // through the transition and any subsequent boss fight, then reappear
+    // later. Consistent with the existing "scrolled off = lost, no penalty".
+    state.powerups = [];
     InputEngine.reset();
     state.mode = STATE.TRANSITION;
     state.transition = { timerMs: TRANSITION_DURATION_MS, isBoss: isBoss };
@@ -193,8 +228,16 @@ var Game = (function () {
   }
 
   function handleKill(enemyId) {
-    state.enemies = state.enemies.filter(function (e) { return e.id !== enemyId; });
+    var defeated = null;
+    state.enemies = state.enemies.filter(function (e) {
+      if (e.id === enemyId) { defeated = e; return false; }
+      return true;
+    });
     state.resolvedThisWave += 1;
+    // Powerup rolls only happen on a player-typed kill — not on escapes
+    // (checkCollisions) or on screenWipe's own kills — to avoid any risk of
+    // cascading spawns.
+    if (defeated) rollPowerupSpawns(defeated.x, defeated.y);
     checkWaveComplete();
   }
 
@@ -214,6 +257,76 @@ var Game = (function () {
       state.wave += 1;
       enterTransition(false);
     }
+  }
+
+  function rollPowerupSpawns(x, y) {
+    Object.keys(POWERUP_PROBABILITIES).forEach(function (type) {
+      if (Math.random() < POWERUP_PROBABILITIES[type]) {
+        spawnPowerup(type, x, y);
+      }
+    });
+  }
+
+  function spawnPowerup(type, x, y) {
+    var word = WordBank.pickWord(POWERUP_CODE_MIN_LEN, POWERUP_CODE_MAX_LEN, null);
+    var code = T9.wordToT9Code(word);
+    state.powerups.push(Powerup.createPowerup({
+      id: state.nextEntityId++,
+      type: type,
+      word: word,
+      code: code,
+      x: x,
+      y: y,
+      width: POWERUP_SIZE,
+      height: POWERUP_SIZE,
+      color: POWERUP_COLORS[type],
+      speed: POWERUP_RISE_SPEED
+    }));
+  }
+
+  function updatePowerups(dt) {
+    var dtSeconds = dt / 1000;
+    var stillRising = [];
+    state.powerups.forEach(function (p) {
+      p.y -= p.speed * dtSeconds;
+      if (p.y + p.height >= 0) {
+        stillRising.push(p);
+      } else if (p.id === InputEngine.getLockedEnemyId()) {
+        InputEngine.reset(); // mirrors the escaped-enemy pattern in checkCollisions
+      }
+    });
+    state.powerups = stillRising;
+  }
+
+  function wipeScreen() {
+    var count = state.enemies.length;
+    state.enemies = [];
+    state.resolvedThisWave += count;
+    InputEngine.reset();
+    checkWaveComplete();
+  }
+
+  function applyPowerupEffect(type) {
+    if (type === 'extraLife') {
+      state.lives += 1;
+    } else if (type === 'halfSpeed') {
+      state.halfSpeedRemainingMs = POWERUP_EFFECT_DURATION_MS;
+    } else if (type === 'halfLength') {
+      state.halfLengthRemainingMs = POWERUP_EFFECT_DURATION_MS;
+    } else if (type === 'screenWipe') {
+      wipeScreen();
+    }
+  }
+
+  function collectPowerup(id) {
+    var collected = null;
+    state.powerups = state.powerups.filter(function (p) {
+      if (p.id === id) { collected = p; return false; }
+      return true;
+    });
+    if (!collected) return;
+    applyPowerupEffect(collected.type);
+    state.powerupFlash = { type: collected.type, timerMs: POWERUP_FLASH_DURATION_MS };
   }
 
   function spawnBossSentence(boss) {
@@ -286,10 +399,25 @@ var Game = (function () {
     }
   }
 
+  function updatePowerupTimers(dt) {
+    if (state.halfSpeedRemainingMs > 0) {
+      state.halfSpeedRemainingMs = Math.max(0, state.halfSpeedRemainingMs - dt);
+    }
+    if (state.halfLengthRemainingMs > 0) {
+      state.halfLengthRemainingMs = Math.max(0, state.halfLengthRemainingMs - dt);
+    }
+    if (state.powerupFlash) {
+      state.powerupFlash.timerMs -= dt;
+      if (state.powerupFlash.timerMs <= 0) state.powerupFlash = null;
+    }
+  }
+
   function update(dt) {
     if (state.mode === STATE.PLAYING) {
+      updatePowerupTimers(dt);
       updateSpawning(dt);
       updateEnemies(dt);
+      updatePowerups(dt);
       checkCollisions();
     } else if (state.mode === STATE.TRANSITION) {
       updateTransition(dt);
@@ -341,9 +469,15 @@ var Game = (function () {
       return;
     }
     if (state.mode === STATE.PLAYING) {
-      var result = InputEngine.handleDigit(digit, state.enemies);
+      var typable = state.enemies.concat(state.powerups);
+      var result = InputEngine.handleDigit(digit, typable);
       if (result.type === 'kill') {
-        handleKill(result.enemyId);
+        var isPowerup = state.powerups.some(function (p) { return p.id === result.enemyId; });
+        if (isPowerup) {
+          collectPowerup(result.enemyId);
+        } else {
+          handleKill(result.enemyId);
+        }
       }
       return;
     }
@@ -395,6 +529,7 @@ var Game = (function () {
   return {
     STATE: STATE,
     ENEMIES_PER_WAVE: ENEMIES_PER_WAVE,
+    POWERUP_DISPLAY_NAMES: POWERUP_DISPLAY_NAMES,
     init: init,
     handleDigitKey: handleDigitKey,
     handleMenuKey: handleMenuKey,

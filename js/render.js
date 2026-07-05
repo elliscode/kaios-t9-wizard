@@ -128,19 +128,43 @@ var Render = (function () {
     if (!hideText) drawTextWithHighlight(ctx, boss, boss.sentence, highlightLen, BOSS_SENTENCE_WRAP_CHARS);
   }
 
+  function renderPowerups(ctx, powerups, buffer, lockedEnemyId, hideText) {
+    powerups.forEach(function (powerup) {
+      var isLocked = powerup.id === lockedEnemyId;
+      var highlightLen = isLocked ? buffer.length : 0;
+
+      ctx.fillStyle = powerup.color;
+      ctx.fillRect(powerup.x, powerup.y, powerup.width, powerup.height);
+      if (isLocked) drawLockOutline(ctx, powerup);
+      if (!hideText) drawTextWithHighlight(ctx, powerup, powerup.word, highlightLen);
+    });
+  }
+
   function renderPlayer(ctx, player) {
     ctx.fillStyle = player.color;
     ctx.fillRect(player.x, player.y, player.width, player.height);
   }
 
+  var MAX_LIFE_SQUARES = 5;
+
   function renderHUD(ctx, state) {
     ctx.fillStyle = '#222';
     ctx.fillRect(0, PLAY_FIELD_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - PLAY_FIELD_HEIGHT);
 
+    // Lives are uncapped (extra-life powerups can push past 3), so squares
+    // are drawn up to a visual cap with a "+N" suffix for anything beyond —
+    // no more fixed "3 total, some empty" convention.
+    var squaresToShow = Math.min(state.lives, MAX_LIFE_SQUARES);
     var i;
-    for (i = 0; i < 3; i++) {
-      ctx.fillStyle = i < state.lives ? '#e74c3c' : '#442226';
+    for (i = 0; i < squaresToShow; i++) {
+      ctx.fillStyle = '#e74c3c';
       ctx.fillRect(6 + i * 16, PLAY_FIELD_HEIGHT + 6, 12, 12);
+    }
+    if (state.lives > MAX_LIFE_SQUARES) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px monospace';
+      ctx.textBaseline = 'top';
+      ctx.fillText('+' + (state.lives - MAX_LIFE_SQUARES), 6 + squaresToShow * 16, PLAY_FIELD_HEIGHT + 7);
     }
 
     ctx.fillStyle = '#fff';
@@ -214,6 +238,21 @@ var Render = (function () {
     ctx.textAlign = 'left';
   }
 
+  var POWERUP_FLASH_BLINK_INTERVAL_MS = 150;
+
+  function renderPowerupFlash(ctx, state) {
+    // Deliberately no darkening backdrop, unlike every other overlay — this
+    // has to flash over live, continuing gameplay rather than pausing/dimming
+    // it. Blinks on/off to read as a "flash" rather than static text.
+    var visible = Math.floor(state.powerupFlash.timerMs / POWERUP_FLASH_BLINK_INTERVAL_MS) % 2 === 0;
+    if (!visible) return;
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(Game.POWERUP_DISPLAY_NAMES[state.powerupFlash.type], CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2);
+    ctx.textAlign = 'left';
+  }
+
   function renderTransitionOverlay(ctx, state) {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
@@ -232,10 +271,13 @@ var Render = (function () {
     renderPlayField(ctx);
 
     var isPaused = state.mode === 'paused';
+    var buffer = InputEngine.getBuffer();
+    var lockedId = InputEngine.getLockedEnemyId();
     if (effectiveMode(state) === 'boss') {
-      renderBoss(ctx, state.boss, InputEngine.getBuffer(), InputEngine.getLockedEnemyId(), isPaused);
+      renderBoss(ctx, state.boss, buffer, lockedId, isPaused);
     } else {
-      renderEnemies(ctx, state.enemies, InputEngine.getBuffer(), InputEngine.getLockedEnemyId(), isPaused);
+      renderEnemies(ctx, state.enemies, buffer, lockedId, isPaused);
+      renderPowerups(ctx, state.powerups, buffer, lockedId, isPaused);
     }
     renderPlayer(ctx, state.player);
     renderHUD(ctx, state);
@@ -245,6 +287,7 @@ var Render = (function () {
     if (effectiveMode(state) === 'transition') renderTransitionOverlay(ctx, state);
     if (state.mode === 'win') renderWinOverlay(ctx, state);
     if (state.mode === 'paused') renderPauseOverlay(ctx, state);
+    if (state.powerupFlash) renderPowerupFlash(ctx, state);
   }
 
   return {

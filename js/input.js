@@ -23,8 +23,18 @@ var InputEngine = (function () {
   }
 
   function tieBreakClosestToPlayer(list) {
-    // Larger y = further fallen = closer to the player (who sits at the bottom).
-    return list.reduce(function (a, b) { return b.y > a.y ? b : a; });
+    // Enemies always outrank powerups regardless of y: enemies fall toward
+    // the player (larger y = more urgent), while powerups rise away from the
+    // player (larger y = just spawned, least urgent) — the same "largest y"
+    // comparison means opposite things for the two kinds, so an urgent
+    // enemy must never lose a lock to a freshly-spawned powerup sharing the
+    // same digit prefix. Within the same kind, largest y wins as before.
+    return list.reduce(function (a, b) {
+      var aIsEnemy = a.kind !== 'powerup';
+      var bIsEnemy = b.kind !== 'powerup';
+      if (aIsEnemy !== bIsEnemy) return aIsEnemy ? a : b;
+      return b.y > a.y ? b : a;
+    });
   }
 
   // Returns one of:

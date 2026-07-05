@@ -1,8 +1,9 @@
-var Enemy = (function () {
-  function createEnemy(opts) {
+var Powerup = (function () {
+  function createPowerup(opts) {
     return {
       id: opts.id,
-      kind: 'enemy',
+      kind: 'powerup',
+      type: opts.type,
       word: opts.word,
       code: opts.code,
       x: opts.x,
@@ -10,11 +11,11 @@ var Enemy = (function () {
       width: opts.width,
       height: opts.height,
       color: opts.color,
-      baseSpeed: opts.baseSpeed
+      speed: opts.speed
     };
   }
 
   return {
-    createEnemy: createEnemy
+    createPowerup: createPowerup
   };
 })();
