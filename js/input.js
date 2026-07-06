@@ -23,16 +23,16 @@ var InputEngine = (function () {
   }
 
   function tieBreakClosestToPlayer(list) {
-    // Enemies always outrank powerups regardless of y: enemies fall toward
-    // the player (larger y = more urgent), while powerups rise away from the
-    // player (larger y = just spawned, least urgent) — the same "largest y"
-    // comparison means opposite things for the two kinds, so an urgent
-    // enemy must never lose a lock to a freshly-spawned powerup sharing the
-    // same digit prefix. Within the same kind, largest y wins as before.
+    // Powerups always outrank enemies regardless of y: a powerup is
+    // time-limited (it flies off-screen and is lost) and should always win
+    // an ambiguous shared-prefix match, even over an enemy that's physically
+    // closer to the player — the player can always come back for that enemy,
+    // but a missed powerup is gone for good. Within the same kind, largest y
+    // (closest to the player) wins as before.
     return list.reduce(function (a, b) {
-      var aIsEnemy = a.kind !== 'powerup';
-      var bIsEnemy = b.kind !== 'powerup';
-      if (aIsEnemy !== bIsEnemy) return aIsEnemy ? a : b;
+      var aIsPowerup = a.kind === 'powerup';
+      var bIsPowerup = b.kind === 'powerup';
+      if (aIsPowerup !== bIsPowerup) return aIsPowerup ? a : b;
       return b.y > a.y ? b : a;
     });
   }

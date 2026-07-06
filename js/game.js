@@ -85,6 +85,7 @@ var Game = (function () {
       halfSpeedRemainingMs: 0,
       halfLengthRemainingMs: 0,
       powerupFlash: null,
+      waveCompletePending: false,
       spawnAccumulator: 0,
       lastTimestamp: null,
       player: {
@@ -249,8 +250,22 @@ var Game = (function () {
   // those 20 is actually off the screen, so nothing is ever force-cleared
   // mid-fight.
   function checkWaveComplete() {
+    // Defensive: only meaningful during PLAYING. Guards against a redundant
+    // call landing after mode has already moved on within the same tick.
+    if (state.mode !== STATE.PLAYING) return;
     if (state.spawnedThisWave < ENEMIES_PER_WAVE) return;
     if (state.enemies.length > 0) return;
+    // Don't cut a powerup announcement short by jumping into the next-wave/
+    // boss transition mid-flash — finish showing it first. updatePowerupTimers
+    // picks this back up and proceeds the instant the flash naturally clears.
+    if (state.powerupFlash) {
+      state.waveCompletePending = true;
+      return;
+    }
+    proceedToNextWaveOrBoss();
+  }
+
+  function proceedToNextWaveOrBoss() {
     if (waveInWorld(state.wave) === WAVES_PER_WORLD) {
       enterTransition(true);
     } else {
@@ -325,8 +340,12 @@ var Game = (function () {
       return true;
     });
     if (!collected) return;
-    applyPowerupEffect(collected.type);
+    // Set the flash BEFORE applying the effect: screenWipe's effect can
+    // itself trigger checkWaveComplete() synchronously (via wipeScreen), and
+    // that check needs to already see an active flash in order to defer the
+    // transition instead of entering it immediately.
     state.powerupFlash = { type: collected.type, timerMs: POWERUP_FLASH_DURATION_MS };
+    applyPowerupEffect(collected.type);
   }
 
   function spawnBossSentence(boss) {
@@ -408,13 +427,26 @@ var Game = (function () {
     }
     if (state.powerupFlash) {
       state.powerupFlash.timerMs -= dt;
-      if (state.powerupFlash.timerMs <= 0) state.powerupFlash = null;
+      if (state.powerupFlash.timerMs <= 0) {
+        state.powerupFlash = null;
+        if (state.waveCompletePending) {
+          state.waveCompletePending = false;
+          proceedToNextWaveOrBoss();
+        }
+      }
     }
   }
 
   function update(dt) {
     if (state.mode === STATE.PLAYING) {
       updatePowerupTimers(dt);
+      // updatePowerupTimers can itself trigger a deferred wave-transition
+      // (see checkWaveComplete/proceedToNextWaveOrBoss) and flip us out of
+      // PLAYING mid-tick — bail immediately so the remaining PLAYING-only
+      // steps below don't run against a mode that already moved on (which
+      // would otherwise let checkCollisions's own checkWaveComplete() call
+      // fire a second, redundant wave-advance in the same frame).
+      if (state.mode !== STATE.PLAYING) return;
       updateSpawning(dt);
       updateEnemies(dt);
       updatePowerups(dt);
