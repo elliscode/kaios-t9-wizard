@@ -1,20 +1,24 @@
 var Layout = (function () {
-  var CANVAS_WIDTH = 240;
-  var CANVAS_HEIGHT = 320;
+  var canvas = document.getElementById('game');
 
-  // KaiOS's browser (as opposed to the packaged app, whose origin is a
-  // .localhost-style internal hostname) adds an extra chrome bar on real web
-  // domains, eating into the usable canvas height. A ".com" hostname is used
-  // as a reasonable proxy for "running in the browser on the public web."
-  var hostname = ((typeof window !== 'undefined' && window.location && window.location.hostname) || '').toLowerCase();
-  var suffix = '.com';
-  var isDotComDomain = hostname.length >= suffix.length &&
-    hostname.slice(hostname.length - suffix.length) === suffix;
-  var PLAY_FIELD_HEIGHT = isDotComDomain ? 276 : 294;
+  // The canvas's actual drawing resolution is set to match whatever the
+  // real available viewport is, exactly — not a fixed 240x320 assumption.
+  // A browser that reserves extra vertical chrome (eating into
+  // window.innerHeight) simply results in a shorter CANVAS_HEIGHT here; the
+  // game fills that fully, with no letterboxing and no separate reserved
+  // HUD strip that could get clipped. There is no PLAY_FIELD_HEIGHT concept
+  // anymore — the whole canvas is the play field, and the HUD is drawn as
+  // a small overlay directly on top of it (see render.js).
+  var CANVAS_WIDTH = (typeof window !== 'undefined' && window.innerWidth) || 240;
+  var CANVAS_HEIGHT = (typeof window !== 'undefined' && window.innerHeight) || 320;
+
+  if (canvas) {
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
+  }
 
   return {
     CANVAS_WIDTH: CANVAS_WIDTH,
-    CANVAS_HEIGHT: CANVAS_HEIGHT,
-    PLAY_FIELD_HEIGHT: PLAY_FIELD_HEIGHT
+    CANVAS_HEIGHT: CANVAS_HEIGHT
   };
 })();

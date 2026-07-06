@@ -1,7 +1,6 @@
 var Game = (function () {
   var CANVAS_WIDTH = Layout.CANVAS_WIDTH;
   var CANVAS_HEIGHT = Layout.CANVAS_HEIGHT;
-  var PLAY_FIELD_HEIGHT = Layout.PLAY_FIELD_HEIGHT;
 
   var STATE = { MENU: 'menu', PLAYING: 'playing', TRANSITION: 'transition', BOSS: 'boss', PAUSED: 'paused', GAMEOVER: 'gameover', WIN: 'win' };
 
@@ -90,7 +89,7 @@ var Game = (function () {
       lastTimestamp: null,
       player: {
         x: CANVAS_WIDTH / 2 - 20,
-        y: PLAY_FIELD_HEIGHT - 20,
+        y: CANVAS_HEIGHT - 20,
         width: 40,
         height: 16,
         color: '#999'
@@ -255,6 +254,10 @@ var Game = (function () {
     if (state.mode !== STATE.PLAYING) return;
     if (state.spawnedThisWave < ENEMIES_PER_WAVE) return;
     if (state.enemies.length > 0) return;
+    // Give the player a chance to still grab (or lose) any powerups still
+    // in flight before moving on — killing the last enemy shouldn't yank
+    // away powerups the player hasn't had a chance to type yet.
+    if (state.powerups.length > 0) return;
     // Don't cut a powerup announcement short by jumping into the next-wave/
     // boss transition mid-flash — finish showing it first. updatePowerupTimers
     // picks this back up and proceeds the instant the flash naturally clears.
@@ -311,6 +314,9 @@ var Game = (function () {
       }
     });
     state.powerups = stillRising;
+    // A powerup scrolling off-screen can be the last thing the (already
+    // enemy-cleared) wave was waiting on.
+    checkWaveComplete();
   }
 
   function wipeScreen() {
@@ -321,6 +327,31 @@ var Game = (function () {
     checkWaveComplete();
   }
 
+  // Shrinks every enemy currently on screen to half its word length (rounded
+  // down, min 2), re-picking a genuine shorter word for each — same rule as
+  // newly-spawned enemies while the effect is active. The enemy InputEngine
+  // currently has locked (if any) is deliberately skipped: shrinking its
+  // code out from under an in-progress typed buffer would leave the buffer
+  // no longer a valid prefix of the new (shorter) code, permanently
+  // soft-locking it — no digit could ever complete it again. Every other
+  // on-screen enemy is safe to shrink since nothing has been typed against
+  // it yet.
+  function applyHalfLengthToExistingEnemies() {
+    var lockedId = InputEngine.getLockedEnemyId();
+    state.enemies.forEach(function (e) {
+      if (e.id === lockedId) return;
+      var newLen = Math.max(2, Math.floor(e.word.length / 2));
+      if (newLen >= e.word.length) return;
+      var activeWords = {};
+      state.enemies.forEach(function (other) { if (other !== e) activeWords[other.word] = true; });
+      var newWord = WordBank.pickWord(newLen, newLen, { has: function (w) { return !!activeWords[w]; } });
+      e.word = newWord;
+      e.code = T9.wordToT9Code(newWord);
+      e.width = Math.max(MIN_BLOCK_WIDTH, newWord.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
+      e.color = Colors.colorForWordLength(newWord.length);
+    });
+  }
+
   function applyPowerupEffect(type) {
     if (type === 'extraLife') {
       state.lives += 1;
@@ -328,6 +359,7 @@ var Game = (function () {
       state.halfSpeedRemainingMs = POWERUP_EFFECT_DURATION_MS;
     } else if (type === 'halfLength') {
       state.halfLengthRemainingMs = POWERUP_EFFECT_DURATION_MS;
+      applyHalfLengthToExistingEnemies();
     } else if (type === 'screenWipe') {
       wipeScreen();
     }
@@ -346,6 +378,11 @@ var Game = (function () {
     // transition instead of entering it immediately.
     state.powerupFlash = { type: collected.type, timerMs: POWERUP_FLASH_DURATION_MS };
     applyPowerupEffect(collected.type);
+    // Collecting the last remaining powerup can be the last thing the
+    // (already enemy-cleared) wave was waiting on — screenWipe's own effect
+    // already reaches checkWaveComplete via wipeScreen, but the other three
+    // types don't, so this call is what covers those cases uniformly.
+    checkWaveComplete();
   }
 
   function spawnBossSentence(boss) {

@@ -1,12 +1,11 @@
 var Render = (function () {
   var CANVAS_WIDTH = Layout.CANVAS_WIDTH;
   var CANVAS_HEIGHT = Layout.CANVAS_HEIGHT;
-  var PLAY_FIELD_HEIGHT = Layout.PLAY_FIELD_HEIGHT;
   var BOSS_SENTENCE_WRAP_CHARS = 36;
 
   function renderPlayField(ctx) {
     ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   }
 
   // While paused, state.mode is 'paused' — this recovers "what was actually
@@ -146,30 +145,33 @@ var Render = (function () {
   }
 
   var MAX_LIFE_SQUARES = 5;
+  var HUD_MARGIN = 6;
+  var HUD_SQUARE_SIZE = 12;
 
+  // The HUD is a small overlay drawn directly on top of the play field in
+  // the bottom corners — there's no separate reserved "HUD bar" anymore
+  // (and so nothing that could get clipped if a browser's chrome eats into
+  // the available viewport height). Rendered last in renderFrame, on top
+  // of everything else, so it's never obscured by gameplay passing behind
+  // it and stays visible through every other overlay (menu/pause/etc).
   function renderHUD(ctx, state) {
-    ctx.fillStyle = '#222';
-    ctx.fillRect(0, PLAY_FIELD_HEIGHT, CANVAS_WIDTH, CANVAS_HEIGHT - PLAY_FIELD_HEIGHT);
-
-    // Lives are uncapped (extra-life powerups can push past 3), so squares
-    // are drawn up to a visual cap with a "+N" suffix for anything beyond —
-    // no more fixed "3 total, some empty" convention.
     var squaresToShow = Math.min(state.lives, MAX_LIFE_SQUARES);
+    var squareY = CANVAS_HEIGHT - HUD_MARGIN - HUD_SQUARE_SIZE;
     var i;
     for (i = 0; i < squaresToShow; i++) {
       ctx.fillStyle = '#e74c3c';
-      ctx.fillRect(6 + i * 16, PLAY_FIELD_HEIGHT + 6, 12, 12);
+      ctx.fillRect(HUD_MARGIN + i * 16, squareY, HUD_SQUARE_SIZE, HUD_SQUARE_SIZE);
     }
     if (state.lives > MAX_LIFE_SQUARES) {
       ctx.fillStyle = '#fff';
       ctx.font = '10px monospace';
       ctx.textBaseline = 'top';
-      ctx.fillText('+' + (state.lives - MAX_LIFE_SQUARES), 6 + squaresToShow * 16, PLAY_FIELD_HEIGHT + 7);
+      ctx.fillText('+' + (state.lives - MAX_LIFE_SQUARES), HUD_MARGIN + squaresToShow * 16, squareY + 1);
     }
 
     ctx.fillStyle = '#fff';
     ctx.font = '11px monospace';
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'bottom';
     ctx.textAlign = 'right';
     var label;
     if (effectiveMode(state) === 'boss') {
@@ -179,47 +181,48 @@ var Render = (function () {
       var wiw = Game.waveInWorld(state.wave);
       label = 'W' + world + '-' + wiw + '  ' + state.resolvedThisWave + '/' + Game.ENEMIES_PER_WAVE;
     }
-    ctx.fillText(label, CANVAS_WIDTH - 6, PLAY_FIELD_HEIGHT + 8);
+    ctx.fillText(label, CANVAS_WIDTH - HUD_MARGIN, CANVAS_HEIGHT - HUD_MARGIN);
     ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
   }
 
   function renderMenuOverlay(ctx) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('T9 WIZARD', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 - 20);
+    ctx.fillText('T9 WIZARD', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
     ctx.font = '10px monospace';
-    ctx.fillText('Press 1 to start', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 + 4);
+    ctx.fillText('Press 1 to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
     ctx.textAlign = 'left';
   }
 
   function renderGameOverOverlay(ctx, state) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 - 24);
+    ctx.fillText('GAME OVER', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 24);
     ctx.font = '10px monospace';
     var world = Game.worldOfWave(state.wave);
     var wiw = Game.waveInWorld(state.wave);
-    ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2);
-    ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 + 18);
+    ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
 
   function renderWinOverlay(ctx, state) {
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('YOU WIN', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 - 24);
+    ctx.fillText('YOU WIN', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 24);
     ctx.font = '10px monospace';
-    ctx.fillText('All 5 worlds cleared', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2);
-    ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 + 18);
+    ctx.fillText('All 5 worlds cleared', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
 
@@ -228,13 +231,13 @@ var Render = (function () {
     // transition overlay's centered text — the two can legitimately be
     // drawn on top of each other (pausing mid wave-transition announcement).
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('PAUSED', CANVAS_WIDTH / 2, 30);
     ctx.font = '10px monospace';
-    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT - 30);
+    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 30);
     ctx.textAlign = 'left';
   }
 
@@ -249,20 +252,20 @@ var Render = (function () {
     ctx.fillStyle = '#fff';
     ctx.font = '16px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(Game.POWERUP_DISPLAY_NAMES[state.powerupFlash.type], CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2);
+    ctx.fillText(Game.POWERUP_DISPLAY_NAMES[state.powerupFlash.type], CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.textAlign = 'left';
   }
 
   function renderTransitionOverlay(ctx, state) {
     ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, CANVAS_WIDTH, PLAY_FIELD_HEIGHT);
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.fillStyle = '#fff';
     ctx.font = '16px monospace';
     ctx.textAlign = 'center';
     var world = Game.worldOfWave(state.wave);
     var secondLine = state.transition.isBoss ? 'BOSS' : 'WAVE ' + Game.waveInWorld(state.wave);
-    ctx.fillText('WORLD ' + world, CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 - 16);
-    ctx.fillText(secondLine, CANVAS_WIDTH / 2, PLAY_FIELD_HEIGHT / 2 + 12);
+    ctx.fillText('WORLD ' + world, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 16);
+    ctx.fillText(secondLine, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 12);
     ctx.textAlign = 'left';
   }
 
@@ -280,7 +283,6 @@ var Render = (function () {
       renderPowerups(ctx, state.powerups, buffer, lockedId, isPaused);
     }
     renderPlayer(ctx, state.player);
-    renderHUD(ctx, state);
 
     if (state.mode === 'gameover') renderGameOverOverlay(ctx, state);
     if (state.mode === 'menu') renderMenuOverlay(ctx);
@@ -288,6 +290,10 @@ var Render = (function () {
     if (state.mode === 'win') renderWinOverlay(ctx, state);
     if (state.mode === 'paused') renderPauseOverlay(ctx, state);
     if (state.powerupFlash) renderPowerupFlash(ctx, state);
+
+    // Drawn last so it's always on top — never obscured by gameplay behind
+    // it, and still visible through every other overlay.
+    renderHUD(ctx, state);
   }
 
   return {

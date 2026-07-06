@@ -10,6 +10,6 @@ html, body {
 #game {
   display: block;
   width: 100vw;
-  height: auto;
+  height: 100vh;
   image-rendering: pixelated;
 }
