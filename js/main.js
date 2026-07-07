@@ -11,6 +11,9 @@
       } else if (e.key >= '2' && e.key <= '9') {
         e.preventDefault();
         Game.handleDigitKey(e.key);
+      } else if (e.key === '*') {
+        e.preventDefault();
+        Game.handleBossRushKey();
       }
     });
   });

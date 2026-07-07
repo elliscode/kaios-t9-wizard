@@ -18,11 +18,20 @@ var Game = (function () {
   var BLOCK_HEIGHT = 18;
 
   var BASE_BOSS_HEALTH_SEGMENTS = 3; // tunable — world N has BASE + (N-1)*2 segments
-  var BOSS_WIDTH = 180;
   var BOSS_HEIGHT = 32;
+  // Health is drawn as segments carved directly into the boss's own body
+  // (see renderBoss), so the box's width is derived from its own segment
+  // count rather than a fixed constant — a tougher boss reads as visibly
+  // bigger. js/render.js reads these same constants (via the exports below)
+  // to lay segments out identically to how they were sized here.
+  var BOSS_SEGMENT_WIDTH = 14;
+  var BOSS_SEGMENT_GAP = 4;
+  var BOSS_SEGMENT_PADDING = 8; // margin between the box edge and the first/last segment
 
   // Powerups — each type's probability is independently rolled per player-typed
-  // kill, tunable individually here.
+  // kill, tunable individually here. At most one powerup ever spawns per kill
+  // (see rollPowerupSpawns) — letting more than one hit on the same kill would
+  // stack multiple blocks at the exact same spot, rendering unreadable.
   var POWERUP_PROBABILITIES = { extraLife: 1 / 100, halfSpeed: 1 / 100, halfLength: 1 / 100, screenWipe: 1 / 100 };
   var POWERUP_COLORS = { extraLife: 'white', halfSpeed: 'lightblue', halfLength: 'lightcoral', screenWipe: 'khaki' };
   var POWERUP_DISPLAY_NAMES = { extraLife: 'EXTRA LIFE', halfSpeed: 'HALF SPEED', halfLength: 'SHORT WORDS', screenWipe: 'SCREEN WIPE' };
@@ -35,10 +44,10 @@ var Game = (function () {
 
   var WORLD_LENGTH_RANGES = {
     1: { min: 2, max: 6 },
-    2: { min: 4, max: 8 },
-    3: { min: 6, max: 10 },
-    4: { min: 8, max: 12 },
-    5: { min: 10, max: 12 }
+    2: { min: 2, max: 8 },
+    3: { min: 4, max: 10 },
+    4: { min: 6, max: 12 },
+    5: { min: 8, max: 12 }
   };
   var TOTAL_WORLDS = 5;
   var WAVES_PER_WORLD = 10;
@@ -57,14 +66,14 @@ var Game = (function () {
   // TUNABLE — length 4 was the reference "feels right" speed (30px/sec, the
   // cap); longer words take longer to fall to make the game fair
   function enemyFallSpeedForLength(len) {
-    return Math.min(30, 120 / len);
+    return Math.min(30, 333.3307482896682 / Math.pow(len, 1.73696));
   }
 
   // TUNABLE — boss sentences fall slower than regular enemies since they're
   // much longer to type; later worlds' bosses fall slightly slower still to
   // offset their longer sentences and larger health pools.
   function bossSentenceSpeedForWorld(world) {
-    return 11 / world;
+    return 30 / world;
   }
 
   function makeInitialState() {
@@ -80,6 +89,7 @@ var Game = (function () {
       wave: 1,
       spawnedThisWave: 0,
       resolvedThisWave: 0,
+      bossRush: false,
       usedSentences: {},
       halfSpeedRemainingMs: 0,
       halfLengthRemainingMs: 0,
@@ -194,9 +204,11 @@ var Game = (function () {
     state.resolvedThisWave += escaped;
     if (state.lives <= 0) {
       state.mode = STATE.GAMEOVER;
+      SaveGame.clear();
       return;
     }
     checkWaveComplete();
+    SaveGame.save(state);
   }
 
   function enterTransition(isBoss) {
@@ -225,6 +237,7 @@ var Game = (function () {
       state.resolvedThisWave = 0;
       state.mode = STATE.PLAYING;
     }
+    SaveGame.save(state);
   }
 
   function handleKill(enemyId) {
@@ -239,6 +252,7 @@ var Game = (function () {
     // cascading spawns.
     if (defeated) rollPowerupSpawns(defeated.x, defeated.y);
     checkWaveComplete();
+    SaveGame.save(state);
   }
 
   // A wave is complete once all of its (capped-at-20) enemies have been
@@ -278,11 +292,20 @@ var Game = (function () {
   }
 
   function rollPowerupSpawns(x, y) {
-    Object.keys(POWERUP_PROBABILITIES).forEach(function (type) {
-      if (Math.random() < POWERUP_PROBABILITIES[type]) {
-        spawnPowerup(type, x, y);
+    var types = Object.keys(POWERUP_PROBABILITIES);
+    // Shuffle so that on the rare tick where more than one type's roll would
+    // hit, which one actually spawns isn't biased toward whichever key
+    // happens to be listed first in POWERUP_PROBABILITIES.
+    for (var i = types.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = types[i]; types[i] = types[j]; types[j] = tmp;
+    }
+    for (var k = 0; k < types.length; k++) {
+      if (Math.random() < POWERUP_PROBABILITIES[types[k]]) {
+        spawnPowerup(types[k], x, y);
+        return; // at most one powerup per kill, ever -- see comment above.
       }
-    });
+    }
   }
 
   function spawnPowerup(type, x, y) {
@@ -383,6 +406,7 @@ var Game = (function () {
     // already reaches checkWaveComplete via wipeScreen, but the other three
     // types don't, so this call is what covers those cases uniformly.
     checkWaveComplete();
+    SaveGame.save(state);
   }
 
   function spawnBossSentence(boss) {
@@ -400,16 +424,21 @@ var Game = (function () {
     return BASE_BOSS_HEALTH_SEGMENTS + (world - 1) * 2;
   }
 
+  function bossWidthForHealth(maxHealth) {
+    return BOSS_SEGMENT_PADDING * 2 + maxHealth * BOSS_SEGMENT_WIDTH + (maxHealth - 1) * BOSS_SEGMENT_GAP;
+  }
+
   function startBossFight(world) {
     var health = healthSegmentsForWorld(world);
+    var width = bossWidthForHealth(health);
     state.boss = Boss.createBoss({
       id: 'boss-' + world,
       world: world,
       health: health,
       maxHealth: health,
-      x: (CANVAS_WIDTH - BOSS_WIDTH) / 2,
+      x: (CANVAS_WIDTH - width) / 2,
       y: -BOSS_HEIGHT,
-      width: BOSS_WIDTH,
+      width: width,
       height: BOSS_HEIGHT,
       color: Colors.bossColorForWorld(world),
       speed: bossSentenceSpeedForWorld(world)
@@ -429,8 +458,10 @@ var Game = (function () {
       if (state.lives <= 0) {
         state.mode = STATE.GAMEOVER;
         state.boss = null;
+        SaveGame.clear();
       } else {
         spawnBossSentence(boss);
+        SaveGame.save(state);
       }
     }
   }
@@ -440,6 +471,13 @@ var Game = (function () {
     state.boss = null;
     if (world === TOTAL_WORLDS) {
       state.mode = STATE.WIN;
+      SaveGame.clear();
+    } else if (state.bossRush) {
+      // Skip straight to the next world's boss — jump wave to that world's
+      // final wave number so enterTransition(true) lands on the right world
+      // via the same worldOfWave/waveInWorld math the normal flow uses.
+      state.wave = (world + 1) * WAVES_PER_WORLD;
+      enterTransition(true);
     } else {
       state.wave = world * WAVES_PER_WORLD + 1;
       enterTransition(false);
@@ -452,6 +490,7 @@ var Game = (function () {
       handleBossDefeated();
     } else {
       spawnBossSentence(state.boss);
+      SaveGame.save(state);
     }
   }
 
@@ -497,9 +536,32 @@ var Game = (function () {
   }
 
   function resetGame() {
+    // Clear any existing save immediately — otherwise, if the app closes
+    // before the first checkpoint of this fresh run, the next launch would
+    // resume the *previous* run instead of starting the new one.
+    SaveGame.clear();
     state = makeInitialState();
     InputEngine.reset();
     enterTransition(false);
+  }
+
+  // Testing/balance-tuning aid: play through only the bosses, world by
+  // world, skipping every regular wave — see handleBossDefeated's bossRush
+  // branch for how each subsequent boss is chained.
+  function startBossRush() {
+    SaveGame.clear();
+    state = makeInitialState();
+    state.bossRush = true;
+    state.wave = WAVES_PER_WORLD;
+    InputEngine.reset();
+    enterTransition(true);
+  }
+
+  // From game-over/win, "Press 1" now returns to the main menu screen rather
+  // than immediately starting a new run — makeInitialState() already defaults
+  // to STATE.MENU, so this doubles as a full, clean reset of HUD/state too.
+  function returnToMenu() {
+    state = makeInitialState();
   }
 
   // The exact three modes that advance time — the only ones that can be
@@ -514,6 +576,10 @@ var Game = (function () {
   function pauseGame() {
     state.pausedFromMode = state.mode;
     state.mode = STATE.PAUSED;
+    // Pausing (manual, auto-on-stall, or the tab being hidden) is exactly
+    // the moment the app might get backgrounded/closed next, so it doubles
+    // as a save checkpoint.
+    SaveGame.save(state);
   }
 
   function resumeGame() {
@@ -522,12 +588,20 @@ var Game = (function () {
   }
 
   function handleMenuKey() {
-    if (state.mode === STATE.MENU || state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
+    if (state.mode === STATE.MENU) {
       resetGame();
+    } else if (state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
+      returnToMenu();
     } else if (state.mode === STATE.PAUSED) {
       resumeGame();
     } else if (isActiveSimulationMode()) {
       pauseGame();
+    }
+  }
+
+  function handleBossRushKey() {
+    if (state.mode === STATE.MENU || state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
+      startBossRush();
     }
   }
 
@@ -580,9 +654,38 @@ var Game = (function () {
     requestAnimationFrame(loop);
   }
 
+  // Rebuilds a state object from a save payload. Starts from a fresh
+  // makeInitialState() so every field has a sane default (player position
+  // in particular is re-derived from the current canvas size rather than
+  // persisted, since it's purely a function of viewport dimensions, not
+  // gameplay), then overwrites just the fields that matter for resuming.
+  // Always resumes into PAUSED — wrapping whatever mode was actually saved
+  // — so the player gets a moment to get oriented (and see "PAUSED / Press
+  // 1 to resume") rather than being dropped straight into falling enemies
+  // the instant the app opens.
+  function restoreStateFromSave(saved) {
+    var restored = makeInitialState();
+    restored.wave = saved.wave;
+    restored.lives = saved.lives;
+    restored.bossRush = !!saved.bossRush;
+    restored.spawnedThisWave = saved.spawnedThisWave;
+    restored.resolvedThisWave = saved.resolvedThisWave;
+    restored.nextEntityId = saved.nextEntityId;
+    restored.enemies = saved.enemies || [];
+    restored.powerups = saved.powerups || [];
+    restored.boss = saved.boss || null;
+    restored.halfSpeedRemainingMs = saved.halfSpeedRemainingMs || 0;
+    restored.halfLengthRemainingMs = saved.halfLengthRemainingMs || 0;
+    restored.usedSentences = saved.usedSentences || {};
+    restored.pausedFromMode = saved.resumeMode;
+    restored.mode = STATE.PAUSED;
+    return restored;
+  }
+
   function init(canvas) {
     ctx = canvas.getContext('2d');
-    state = makeInitialState();
+    var saved = SaveGame.load();
+    state = saved ? restoreStateFromSave(saved) : makeInitialState();
     // Pause proactively the instant the page is hidden, rather than relying
     // solely on next-frame dt measurement — closes a race where a "resume"
     // keypress right as the tab regains focus could be processed before the
@@ -592,6 +695,11 @@ var Game = (function () {
         pauseGame();
       }
     });
+    // A final flush for teardown paths visibilitychange might not catch on
+    // every browser (e.g. process termination without a visibility change).
+    window.addEventListener('pagehide', function () {
+      SaveGame.save(state);
+    });
     requestAnimationFrame(loop);
   }
 
@@ -599,9 +707,13 @@ var Game = (function () {
     STATE: STATE,
     ENEMIES_PER_WAVE: ENEMIES_PER_WAVE,
     POWERUP_DISPLAY_NAMES: POWERUP_DISPLAY_NAMES,
+    BOSS_SEGMENT_WIDTH: BOSS_SEGMENT_WIDTH,
+    BOSS_SEGMENT_GAP: BOSS_SEGMENT_GAP,
+    BOSS_SEGMENT_PADDING: BOSS_SEGMENT_PADDING,
     init: init,
     handleDigitKey: handleDigitKey,
     handleMenuKey: handleMenuKey,
+    handleBossRushKey: handleBossRushKey,
     getWordLengthRangeForWave: getWordLengthRangeForWave,
     worldOfWave: worldOfWave,
     waveInWorld: waveInWorld

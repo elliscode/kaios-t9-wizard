@@ -65,6 +65,22 @@ var Render = (function () {
 
   var LINE_HEIGHT = 13;
 
+  // Semi-transparent backing (same color as the playfield background) behind
+  // each text line, so text stays legible over whatever's behind it — another
+  // block it happens to overlap, or just the bare playfield. Drawn as its own
+  // pass, before the lock outline, so the outline is never painted over by it.
+  function drawTextBackground(ctx, entity, display, maxCharsPerLine) {
+    ctx.font = '11px monospace';
+    var lines = wrapTextWithIndices(display, maxCharsPerLine || display.length);
+    ctx.fillStyle = 'rgba(17, 17, 17, 0.5)';
+    lines.forEach(function (line, i) {
+      var fullWidth = ctx.measureText(line.text).width;
+      var startX = entity.x + entity.width / 2 - fullWidth / 2;
+      var y = entity.y + entity.height + 2 + i * LINE_HEIGHT;
+      ctx.fillRect(startX - 2, y - 1, fullWidth + 4, LINE_HEIGHT);
+    });
+  }
+
   function drawTextWithHighlight(ctx, entity, display, typedCount, maxCharsPerLine) {
     ctx.font = '11px monospace';
     ctx.textBaseline = 'top';
@@ -94,49 +110,84 @@ var Render = (function () {
     ctx.strokeRect(entity.x - 2, entity.y - 2, entity.width + 4, entity.height + 4);
   }
 
-  function renderEnemies(ctx, enemies, buffer, lockedEnemyId, hideText) {
-    enemies.forEach(function (enemy) {
-      var isLocked = enemy.id === lockedEnemyId;
-      var highlightLen = isLocked ? buffer.length : 0;
+  function drawEntityBlock(ctx, entity, word, isLocked, buffer, hideText) {
+    var highlightLen = isLocked ? buffer.length : 0;
 
-      ctx.fillStyle = enemy.color;
-      ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
-      if (isLocked) drawLockOutline(ctx, enemy);
-      if (!hideText) drawTextWithHighlight(ctx, enemy, enemy.word, highlightLen);
+    ctx.fillStyle = entity.color;
+    ctx.fillRect(entity.x, entity.y, entity.width, entity.height);
+    if (!hideText) drawTextBackground(ctx, entity, word);
+    if (isLocked) drawLockOutline(ctx, entity);
+    if (!hideText) drawTextWithHighlight(ctx, entity, word, highlightLen);
+  }
+
+  // Draw priority within a category: further down the screen (larger y,
+  // closer to the player, more urgent) wins and is drawn last/on top of
+  // ones further up. Sorts a copy — state.enemies/state.powerups order is
+  // relied on elsewhere and must never be mutated by rendering.
+  function sortedByYAscending(list) {
+    return list.slice().sort(function (a, b) { return a.y - b.y; });
+  }
+
+  // Enemies/powerups are drawn in array order, which has nothing to do with
+  // which one is locked — so the locked entity is skipped here and redrawn
+  // last by renderFrame, on top of everything else, so it's never obscured.
+  function renderEnemies(ctx, enemies, buffer, lockedEnemyId, hideText) {
+    sortedByYAscending(enemies).forEach(function (enemy) {
+      if (enemy.id === lockedEnemyId) return;
+      drawEntityBlock(ctx, enemy, enemy.word, false, buffer, hideText);
     });
   }
 
-  function renderBoss(ctx, boss, buffer, lockedEnemyId, hideText) {
+  function renderBoss(ctx, boss, buffer, lockedEnemyId, hideText, playerY) {
     var isLocked = boss.id === lockedEnemyId;
     var highlightLen = isLocked ? buffer.length : 0;
 
-    // Health segments, drawn just above the boss box.
-    var segWidth = 14;
-    var segGap = 4;
-    var totalWidth = boss.maxHealth * segWidth + (boss.maxHealth - 1) * segGap;
-    var segStartX = boss.x + boss.width / 2 - totalWidth / 2;
-    var segY = boss.y - 14;
-    for (var i = 0; i < boss.maxHealth; i++) {
-      ctx.fillStyle = i < boss.health ? boss.color : '#333';
-      ctx.fillRect(segStartX + i * (segWidth + segGap), segY, segWidth, 10);
-    }
-
     ctx.fillStyle = boss.color;
     ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
-    if (isLocked) drawLockOutline(ctx, boss);
-    if (!hideText) drawTextWithHighlight(ctx, boss, boss.sentence, highlightLen, BOSS_SENTENCE_WRAP_CHARS);
+
+    // Health is carved directly into the boss's own body: an intact segment
+    // is indistinguishable from the rest of the (already boss.color) box, so
+    // only depleted segments need repainting, in the background color — each
+    // one reads as a literal chunk bitten out as the boss loses health.
+    var segX = boss.x + Game.BOSS_SEGMENT_PADDING;
+    for (var i = 0; i < boss.maxHealth; i++) {
+      if (i >= boss.health) {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(segX, boss.y, Game.BOSS_SEGMENT_WIDTH, boss.height);
+      }
+      segX += Game.BOSS_SEGMENT_WIDTH + Game.BOSS_SEGMENT_GAP;
+    }
+
+    // No lock outline here — boss mode only ever has one typable entity on
+    // screen, so highlighting "which one is locked" is redundant clutter.
+
+    if (!hideText) {
+      // Freeze the sentence's vertical position once it would start closing
+      // in on the player, while the box itself keeps falling (and can still
+      // collide normally) — otherwise a fast-falling, multi-line sentence
+      // can scroll off-screen before the player has a fair chance to finish
+      // typing it, well before the box itself reaches the player.
+      var lineCount = wrapTextWithIndices(boss.sentence, BOSS_SENTENCE_WRAP_CHARS).length;
+      var maxTextY = playerY - boss.height - 2 - lineCount * LINE_HEIGHT;
+      var textAnchor = { x: boss.x, y: Math.min(boss.y, maxTextY), width: boss.width, height: boss.height };
+      drawTextBackground(ctx, textAnchor, boss.sentence, BOSS_SENTENCE_WRAP_CHARS);
+      drawTextWithHighlight(ctx, textAnchor, boss.sentence, highlightLen, BOSS_SENTENCE_WRAP_CHARS);
+    }
   }
 
   function renderPowerups(ctx, powerups, buffer, lockedEnemyId, hideText) {
-    powerups.forEach(function (powerup) {
-      var isLocked = powerup.id === lockedEnemyId;
-      var highlightLen = isLocked ? buffer.length : 0;
-
-      ctx.fillStyle = powerup.color;
-      ctx.fillRect(powerup.x, powerup.y, powerup.width, powerup.height);
-      if (isLocked) drawLockOutline(ctx, powerup);
-      if (!hideText) drawTextWithHighlight(ctx, powerup, powerup.word, highlightLen);
+    sortedByYAscending(powerups).forEach(function (powerup) {
+      if (powerup.id === lockedEnemyId) return;
+      drawEntityBlock(ctx, powerup, powerup.word, false, buffer, hideText);
     });
+  }
+
+  // Redraws whichever entity (enemy or powerup) is currently locked, on top
+  // of everything else in the non-boss render pass — see renderEnemies.
+  function renderLockedEntityOnTop(ctx, enemies, powerups, buffer, lockedEnemyId, hideText) {
+    if (lockedEnemyId == null) return;
+    var locked = enemies.concat(powerups).filter(function (e) { return e.id === lockedEnemyId; })[0];
+    if (locked) drawEntityBlock(ctx, locked, locked.word, true, buffer, hideText);
   }
 
   function renderPlayer(ctx, player) {
@@ -195,6 +246,7 @@ var Render = (function () {
     ctx.fillText('T9 WIZARD', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
     ctx.font = '10px monospace';
     ctx.fillText('Press 1 to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
+    ctx.fillText('Press * for boss rush', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
 
@@ -209,7 +261,7 @@ var Render = (function () {
     var world = Game.worldOfWave(state.wave);
     var wiw = Game.waveInWorld(state.wave);
     ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-    ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
 
@@ -219,10 +271,13 @@ var Render = (function () {
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('YOU WIN', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 24);
+    // Boss rush is a testing/practice mode, not a real run -- keep its
+    // ending visually distinct so it's obvious it won't count toward a
+    // future leaderboard, unlike a genuine "all 5 worlds cleared" win.
+    ctx.fillText(state.bossRush ? 'BOSS RUSH COMPLETE' : 'YOU WIN', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 24);
     ctx.font = '10px monospace';
-    ctx.fillText('All 5 worlds cleared', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-    ctx.fillText('Press 1 to restart', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText(state.bossRush ? 'All 5 bosses defeated' : 'All 5 worlds cleared', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
 
@@ -277,10 +332,11 @@ var Render = (function () {
     var buffer = InputEngine.getBuffer();
     var lockedId = InputEngine.getLockedEnemyId();
     if (effectiveMode(state) === 'boss') {
-      renderBoss(ctx, state.boss, buffer, lockedId, isPaused);
+      renderBoss(ctx, state.boss, buffer, lockedId, isPaused, state.player.y);
     } else {
       renderEnemies(ctx, state.enemies, buffer, lockedId, isPaused);
       renderPowerups(ctx, state.powerups, buffer, lockedId, isPaused);
+      renderLockedEntityOnTop(ctx, state.enemies, state.powerups, buffer, lockedId, isPaused);
     }
     renderPlayer(ctx, state.player);
 

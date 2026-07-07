@@ -13,7 +13,7 @@
 var SENTENCES_BY_TIER = {
   "1": [
     "call me ishmael",
-    "i want a fortune",
+    "yes i want a fortune",
     "there is magic in it",
     "i shall want to live",
     "poverty is not a vice",
@@ -37,7 +37,6 @@ var SENTENCES_BY_TIER = {
     "you are over scrupulous surely",
     "you mistake me my dear",
     "i strike quickly being moved",
-    "rebellious subjects enemies to peace",
     "is the day so young",
     "any nook does for me",
     "you are a clever woman",
@@ -47,6 +46,9 @@ var SENTENCES_BY_TIER = {
     "a rouble and a half"
   ],
   "2": [
+    "but thou art not quickly moved to strike",
+    "rebellious subjects enemies to peace",
+    "some years ago never mind how long",
     "a plague o both your houses",
     "man grows used to everything the scoundrel",
     "o romeo romeo wherefore art thou romeo",
