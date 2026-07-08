@@ -3,8 +3,10 @@ var Render = (function () {
   var CANVAS_HEIGHT = Layout.CANVAS_HEIGHT;
   var BOSS_SENTENCE_WRAP_CHARS = 36;
 
-  function renderPlayField(ctx) {
-    ctx.fillStyle = '#111';
+  function renderPlayField(ctx, state) {
+    // Brief dark-red flash on a real (non-benign) mistake -- see
+    // applyTypingResult/errorFlash in js/game.js.
+    ctx.fillStyle = state.errorFlash ? '#c20000' : '#111';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   }
 
@@ -199,6 +201,21 @@ var Render = (function () {
   var HUD_MARGIN = 6;
   var HUD_SQUARE_SIZE = 12;
 
+  // Score/multiplier are deliberately drawn first (lowest z-order) rather
+  // than as part of renderHUD below -- seeing enemies and their text clearly
+  // matters more than the score at any given moment, so gameplay always
+  // paints over this, never the other way around.
+  function renderScoreHUD(ctx, state) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px monospace';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillText('Score: ' + Math.floor(state.score), HUD_MARGIN, HUD_MARGIN);
+    ctx.textAlign = 'right';
+    ctx.fillText('Multiplier: x' + state.scoreMultiplier.toFixed(1), CANVAS_WIDTH - HUD_MARGIN, HUD_MARGIN);
+    ctx.textAlign = 'left';
+  }
+
   // The HUD is a small overlay drawn directly on top of the play field in
   // the bottom corners — there's no separate reserved "HUD bar" anymore
   // (and so nothing that could get clipped if a browser's chrome eats into
@@ -222,8 +239,8 @@ var Render = (function () {
 
     ctx.fillStyle = '#fff';
     ctx.font = '11px monospace';
-    ctx.textBaseline = 'bottom';
     ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
     var label;
     if (effectiveMode(state) === 'boss') {
       label = 'W' + state.boss.world + ' BOSS';
@@ -261,7 +278,8 @@ var Render = (function () {
     var world = Game.worldOfWave(state.wave);
     var wiw = Game.waveInWorld(state.wave);
     ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
+    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
     ctx.textAlign = 'left';
   }
 
@@ -277,7 +295,8 @@ var Render = (function () {
     ctx.fillText(state.bossRush ? 'BOSS RUSH COMPLETE' : 'YOU WIN', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 24);
     ctx.font = '10px monospace';
     ctx.fillText(state.bossRush ? 'All 5 bosses defeated' : 'All 5 worlds cleared', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
-    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
+    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
     ctx.textAlign = 'left';
   }
 
@@ -327,7 +346,8 @@ var Render = (function () {
 
   function renderFrame(ctx, state) {
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    renderPlayField(ctx);
+    renderPlayField(ctx, state);
+    renderScoreHUD(ctx, state);
 
     var isPaused = state.mode === 'paused';
     var buffer = InputEngine.getBuffer();

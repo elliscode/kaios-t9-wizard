@@ -21,6 +21,12 @@ var Game = (function () {
   var CHAR_WIDTH_ESTIMATE = 10;
   var BLOCK_HEIGHT = 18;
 
+  // Scoring — see applyTypingResult. Every word/sentence finished with zero
+  // real mistakes bumps the global multiplier for subsequent words; any
+  // imperfect or failed (escaped/timed-out) attempt resets it back to 1x.
+  var PERFECT_WORD_MULTIPLIER_BONUS = 0.1;
+  var ERROR_FLASH_DURATION_MS = 200; // brief dark-red playfield flash on a real mistake
+
   var BASE_BOSS_HEALTH_SEGMENTS = 3; // tunable — world N has BASE + (N-1)*2 segments
   var BOSS_HEIGHT = 32;
   // Health is drawn as segments carved directly into the boss's own body
@@ -105,6 +111,11 @@ var Game = (function () {
       tickCount: 0,
       seed: null,
       inputLog: null,
+      score: 0,
+      scoreMultiplier: 1,
+      wordCombo: 0,
+      currentWordHadMistake: false,
+      errorFlash: null,
       player: {
         x: CANVAS_WIDTH / 2 - 20,
         y: CANVAS_HEIGHT - 20,
@@ -203,7 +214,15 @@ var Game = (function () {
       if (enemy.y + enemy.height >= state.player.y) {
         state.lives -= 1;
         escaped += 1;
-        if (enemy.id === InputEngine.getLockedEnemyId()) InputEngine.reset();
+        if (enemy.id === InputEngine.getLockedEnemyId()) {
+          InputEngine.reset();
+          // A locked-then-escaped word was a failed attempt, same as a
+          // mistyped one -- breaks the perfect-word multiplier streak. An
+          // enemy that escapes without ever being locked never had a combo
+          // in progress, so it has no scoring effect at all.
+          state.wordCombo = 0;
+          state.scoreMultiplier = 1;
+        }
       } else {
         stillAlive.push(enemy);
       }
@@ -463,6 +482,10 @@ var Game = (function () {
     if (boss.y + boss.height >= state.player.y) {
       state.lives -= 1;
       InputEngine.reset();
+      // An incomplete sentence reaching the player is a failed attempt at
+      // "one long word" -- breaks the perfect-word multiplier streak.
+      state.wordCombo = 0;
+      state.scoreMultiplier = 1;
       if (state.lives <= 0) {
         state.mode = STATE.GAMEOVER;
         state.boss = null;
@@ -522,6 +545,13 @@ var Game = (function () {
   }
 
   function update(dt) {
+    // Runs regardless of PLAYING/TRANSITION/BOSS -- a mistake can happen
+    // during a boss fight too, and this is simpler than duplicating the
+    // decrement in every mode's own update path.
+    if (state.errorFlash) {
+      state.errorFlash.timerMs -= dt;
+      if (state.errorFlash.timerMs <= 0) state.errorFlash = null;
+    }
     if (state.mode === STATE.PLAYING) {
       updatePowerupTimers(dt);
       // updatePowerupTimers can itself trigger a deferred wave-transition
@@ -635,6 +665,46 @@ var Game = (function () {
     }
   }
 
+  // Scoring engine: an escalating per-word combo (1, 2, 3, ... for each
+  // correct letter, reset by a real mistake) plus a global multiplier that
+  // grows on a perfectly-typed word/sentence and resets to 1x on an
+  // imperfect one. Shared unmodified by regular enemies and the boss (a
+  // full boss sentence is just treated as one long word, per design) -- see
+  // the plan's worked "doggy"/"litter" example for the exact intended math.
+  // `result` comes straight from InputEngine.handleDigit: `firstLetter`
+  // marks the start of a fresh word (including a single-letter word's only
+  // keypress, which never passes through 'locked'), and `benign` marks a
+  // rejected digit that matches the previously-typed character -- KaiOS
+  // hardware can send one physical press as 2-3 duplicate events, and those
+  // are never treated as real mistakes.
+  function applyTypingResult(result) {
+    if (result.type === 'wrong') {
+      if (!result.benign) {
+        state.wordCombo = 0;
+        state.currentWordHadMistake = true;
+        // Multiplier resets the instant a real mistake registers, not
+        // deferred until the word finishes -- a mistake mid-word shouldn't
+        // still be "spending" a streak it already broke.
+        state.scoreMultiplier = 1;
+        state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
+      }
+      return; // benign duplicate: no-op
+    }
+    if (result.type !== 'locked' && result.type !== 'progress' && result.type !== 'kill') return; // 'miss'
+
+    if (result.firstLetter) {
+      state.wordCombo = 1;
+      state.currentWordHadMistake = false;
+    } else {
+      state.wordCombo += 1;
+    }
+    state.score += state.wordCombo * state.scoreMultiplier;
+
+    if (result.type === 'kill' && !state.currentWordHadMistake) {
+      state.scoreMultiplier += PERFECT_WORD_MULTIPLIER_BONUS;
+    }
+  }
+
   function handleDigitKey(digit) {
     if (state.mode !== STATE.PLAYING && state.mode !== STATE.BOSS) {
       // Ignore 2-9 outside of active gameplay, so mashing letters while
@@ -649,10 +719,18 @@ var Game = (function () {
     if (state.inputLog) state.inputLog.push({ tick: state.tickCount, key: digit });
     if (state.mode === STATE.PLAYING) {
       var typable = state.enemies.concat(state.powerups);
+      var lockedIdBefore = InputEngine.getLockedEnemyId();
       var result = InputEngine.handleDigit(digit, typable);
+
+      // Powerups are typed through the same lock-on mechanism as enemies,
+      // but don't contribute to score -- only apply the scoring engine when
+      // whatever's actually locked (or just got locked/killed) is an enemy.
+      var scoringTargetId = (result.type === 'locked' || result.type === 'kill') ? result.enemyId : lockedIdBefore;
+      var targetIsPowerup = scoringTargetId !== null && state.powerups.some(function (p) { return p.id === scoringTargetId; });
+      if (!targetIsPowerup) applyTypingResult(result);
+
       if (result.type === 'kill') {
-        var isPowerup = state.powerups.some(function (p) { return p.id === result.enemyId; });
-        if (isPowerup) {
+        if (targetIsPowerup) {
           collectPowerup(result.enemyId);
         } else {
           handleKill(result.enemyId);
@@ -662,6 +740,7 @@ var Game = (function () {
     }
     if (state.mode === STATE.BOSS) {
       var bossResult = InputEngine.handleDigit(digit, [state.boss]);
+      applyTypingResult(bossResult);
       if (bossResult.type === 'kill') {
         handleBossSentenceCompleted();
       }
@@ -765,6 +844,10 @@ var Game = (function () {
     restored.seed = saved.seed || null;
     restored.inputLog = saved.inputLog || null;
     restored.tickCount = saved.tickCount || 0;
+    restored.score = saved.score || 0;
+    restored.scoreMultiplier = saved.scoreMultiplier || 1;
+    restored.wordCombo = saved.wordCombo || 0;
+    restored.currentWordHadMistake = !!saved.currentWordHadMistake;
     // Restore the RNG's exact live generator position (not just re-seed) so
     // post-resume randomness continues the same sequence a from-scratch
     // replay of this seed + input log would produce, instead of restarting

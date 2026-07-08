@@ -29,6 +29,10 @@ var SaveGame = (function () {
       seed: state.seed,
       inputLog: state.inputLog,
       tickCount: state.tickCount,
+      score: state.score,
+      scoreMultiplier: state.scoreMultiplier,
+      wordCombo: state.wordCombo,
+      currentWordHadMistake: state.currentWordHadMistake,
       // The RNG's live generator position, not just the seed -- resuming
       // must continue the same random sequence a from-scratch replay of
       // this seed + input log would produce, not restart it.

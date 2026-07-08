@@ -51,11 +51,25 @@ var InputEngine = (function () {
   }
 
   // Returns one of:
-  //   { type: 'kill', enemyId }
-  //   { type: 'locked', enemyId }
+  //   { type: 'kill', enemyId, firstLetter }
+  //   { type: 'locked', enemyId, firstLetter: true }
   //   { type: 'progress' }
-  //   { type: 'wrong' }  -- locked, but digit doesn't match; ignored, no penalty
+  //   { type: 'wrong', benign }  -- locked, but digit doesn't match; ignored, no penalty
   //   { type: 'miss' }   -- unlocked, digit matches no enemy; ignored
+  //
+  // `firstLetter` marks a result coming from the "not yet locked" branch --
+  // i.e. this digit started a brand-new word, whether or not that word also
+  // happens to complete immediately (a single-letter word goes straight to
+  // 'kill' without ever passing through 'locked'). The scoring layer
+  // (js/game.js) needs this to know whether to start a fresh per-word combo
+  // or continue an existing one, and can't reliably reconstruct it after the
+  // fact once 'kill' has already cleared the buffer.
+  //
+  // `benign` marks a 'wrong' digit that matches the previously-typed
+  // character -- KaiOS hardware can send one physical keypress as 2-3 rapid
+  // duplicate events, and the scoring layer treats a benign repeat as a
+  // harmless glitch rather than a real mistake (it was already harmless for
+  // gameplay -- the buffer/lock/lives were never affected by a wrong digit).
   function handleDigit(digit, enemies) {
     if (lockedEnemyId !== null) {
       var locked = findById(enemies, lockedEnemyId);
@@ -65,14 +79,14 @@ var InputEngine = (function () {
       // is simply ignored — no effect on the buffer, lives, or the lock —
       // the player must keep entering the locked word's remaining digits.
       if (!locked || locked.code.indexOf(newBuffer) !== 0) {
-        return { type: 'wrong' };
+        return { type: 'wrong', benign: digit === buffer.charAt(buffer.length - 1) };
       }
 
       buffer = newBuffer;
       if (buffer === locked.code) {
         buffer = '';
         lockedEnemyId = null;
-        return { type: 'kill', enemyId: locked.id };
+        return { type: 'kill', enemyId: locked.id, firstLetter: false };
       }
       return { type: 'progress' };
     }
@@ -91,9 +105,9 @@ var InputEngine = (function () {
     if (buffer === target.code) {
       buffer = '';
       lockedEnemyId = null;
-      return { type: 'kill', enemyId: target.id };
+      return { type: 'kill', enemyId: target.id, firstLetter: true };
     }
-    return { type: 'locked', enemyId: target.id };
+    return { type: 'locked', enemyId: target.id, firstLetter: true };
   }
 
   return {
