@@ -1,6 +1,7 @@
 import json
 import secrets
 import os
+import time
 from urllib.parse import parse_qsl
 
 import boto3
@@ -15,6 +16,10 @@ TABLE_NAME = os.environ.get("DYNAMODB_TABLE_NAME")
 digits = "0123456789"
 lowercase_letters = "abcdefghijklmnopqrstuvwxyz"
 uppercase_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+# A run must be submitted within this window of starting to count toward the
+# leaderboard -- see create_game/RUN_EXPIRATION_SECONDS usage in start_route.
+RUN_EXPIRATION_SECONDS = 7 * 24 * 60 * 60
 
 dynamo = boto3.client("dynamodb")
 
@@ -107,3 +112,17 @@ def path_equals(event, method, path):
 
 def create_id(length):
     return "".join(secrets.choice(digits + lowercase_letters + uppercase_letters) for i in range(length))
+
+
+def create_game(run_id, seed):
+    python_data = {
+        "key1": "game",
+        "key2": run_id,
+        "seed": seed,
+        "expiration": int(time.time()) + RUN_EXPIRATION_SECONDS,
+    }
+    dynamo.put_item(
+        TableName=TABLE_NAME,
+        Item=python_obj_to_dynamo_obj(python_data),
+    )
+    return python_data
