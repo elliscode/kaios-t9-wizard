@@ -153,7 +153,7 @@ var Render = (function () {
     for (var i = 0; i < boss.maxHealth; i++) {
       if (i >= boss.health) {
         ctx.fillStyle = '#111';
-        ctx.fillRect(segX, boss.y, Game.BOSS_SEGMENT_WIDTH, boss.height);
+        ctx.fillRect(segX, boss.y + (boss.height / 4), Game.BOSS_SEGMENT_WIDTH, boss.height / 2);
       }
       segX += Game.BOSS_SEGMENT_WIDTH + Game.BOSS_SEGMENT_GAP;
     }

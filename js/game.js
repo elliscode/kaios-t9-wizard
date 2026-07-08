@@ -44,10 +44,10 @@ var Game = (function () {
 
   var WORLD_LENGTH_RANGES = {
     1: { min: 2, max: 6 },
-    2: { min: 2, max: 8 },
-    3: { min: 4, max: 10 },
-    4: { min: 6, max: 12 },
-    5: { min: 8, max: 12 }
+    2: { min: 4, max: 8 },
+    3: { min: 6, max: 10 },
+    4: { min: 8, max: 12 },
+    5: { min: 10, max: 12 }
   };
   var TOTAL_WORLDS = 5;
   var WAVES_PER_WORLD = 10;
