@@ -1,3 +1,7 @@
 *.zip
 .venv/
 __pycache__/
+# Personal/local deployment notes -- may accumulate account-specific details
+# (ARNs, account IDs, region) over time, not meant for the public repo.
+DEV_INFO_DEPLOY_STEPS.md
+PROD_INFO_DEPLOY_STEPS.md

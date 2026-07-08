@@ -85,3 +85,81 @@ Not yet implemented: visual theme/sprites (enemies, powerups, boss, and player a
 - [ ] Record full gameplay events (keypresses, kills, powerups, timestamps) to support post-run stats and an eventual leaderboard submission — designed but not yet built; revisit later.
 - [ ] Sprite art / visual theme (enemies, powerups, boss, and player currently placeholder rectangles; powerups specifically are meant to get unique icons)
 - [ ] Sound and music
+
+
+## TODO Stats
+
+## Post-Run / Leaderboard Statistics
+
+### Core Stats
+- [ ] Score
+- [ ] Completion Time
+- [ ] Game Version / Season
+- [ ] Accuracy (%)
+- [ ] Highest Multiplier Reached
+- [ ] Longest Letter Combo
+- [ ] Longest Perfect Word Streak
+- [ ] Enemies Defeated
+- [ ] Bosses Defeated
+- [ ] Lives Lost
+- [ ] Extra Lives Earned
+- [ ] Maximum Lives Held
+
+### Typing Stats
+- [ ] Correct Keypresses
+- [ ] Incorrect Keypresses
+- [ ] Total Keypresses
+- [ ] T9 Efficiency (% Correct Keypresses)
+- [ ] Words Completed
+- [ ] Words Missed
+- [ ] Perfect Words
+- [ ] Perfect Word Percentage
+- [ ] Average Word Length
+- [ ] Longest Word Completed
+
+### Boss Stats
+- [ ] Boss Sentences Completed
+- [ ] Boss Sentences Failed
+- [ ] Boss Accuracy (%)
+- [ ] Fastest Boss Sentence
+
+### Powerup Stats
+- [ ] Powerups Spawned
+- [ ] Powerups Collected
+- [ ] Powerups Missed
+- [ ] Extra Life Powerups Collected
+- [ ] Half Speed Powerups Collected
+- [ ] Half Length Powerups Collected
+- [ ] Screen Wipe Powerups Collected
+- [ ] Enemies Destroyed by Screen Wipes
+- [ ] Slow Motion Uptime (%)
+
+### Fun Stats
+- [ ] Closest Call (smallest distance from player when an enemy was defeated)
+- [ ] Clutch Saves (enemies defeated within X pixels of the player)
+- [ ] Most Difficult Word Typed
+- [ ] Most Common Word Typed
+- [ ] Most Pressed T9 Digit
+- [ ] Time Spent Paused
+- [ ] Longest Continuous Play Session
+
+### Developer / Balancing Stats
+- [ ] Average Reaction Time (spawn → first keypress)
+- [ ] Average Lock-On Time
+- [ ] Mistakes by Word Length
+- [ ] Deaths by World/Wave
+- [ ] Powerup Collection Rate by Type
+- [ ] Average Multiplier Throughout Run
+
+### Lifetime Stats (Future)
+- [ ] Total Runs Played
+- [ ] Total Play Time
+- [ ] Total Score Earned
+- [ ] Total Correct Keypresses
+- [ ] Total Characters Typed
+- [ ] Total Words Completed
+- [ ] Total Bosses Defeated
+- [ ] Highest Score
+- [ ] Highest Multiplier Ever Reached
+- [ ] Longest Letter Combo Ever
+- [ ] Longest Perfect Word Streak Ever

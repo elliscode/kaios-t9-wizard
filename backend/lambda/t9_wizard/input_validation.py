@@ -1,6 +1,8 @@
 import re
 
-ID_REGEX = "^[a-zA-Z0-9]{10}$"
+ID_REGEX = "^[a-zA-Z0-9]{32}$"  # matches create_id(32), e.g. a run_id
+DISPLAY_NAME_MAX_LENGTH = 20
+T9_DIGITS = set("23456789")
 
 
 def validate_unix_time(value):
@@ -13,6 +15,34 @@ def validate_unix_time(value):
 
 def validate_id(value):
     if isinstance(value, str) and re.match(ID_REGEX, value):
+        return value
+    return None
+
+
+def validate_display_name(value):
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    if not trimmed or len(trimmed) > DISPLAY_NAME_MAX_LENGTH:
+        return None
+    return trimmed
+
+
+def validate_t9_digit(value):
+    if isinstance(value, str) and value in T9_DIGITS:
+        return value
+    return None
+
+
+# int(value)/float(value) raise on non-numeric input instead of returning
+# None like every other validator here -- using bare `int` as a schema field
+# type would let a malformed request crash the handler with an uncaught
+# ValueError (500) instead of a clean 400, so numeric fields go through this
+# instead.
+def validate_non_negative_int(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
         return value
     return None
 
@@ -52,3 +82,26 @@ def validate_schema(value, schema):
             return result
         return None
     return None
+
+
+SUBMIT_SCHEMA = {
+    "type": dict,
+    "fields": [
+        {"type": validate_id, "name": "run_id"},
+        {"type": validate_display_name, "name": "display_name"},
+        {"type": validate_non_negative_int, "name": "tick_count"},
+        {"type": validate_non_negative_int, "name": "canvas_width"},
+        {"type": validate_non_negative_int, "name": "canvas_height"},
+        {
+            "type": list,
+            "name": "input_log",
+            "elements": {
+                "type": dict,
+                "fields": [
+                    {"type": validate_non_negative_int, "name": "tick"},
+                    {"type": validate_t9_digit, "name": "key"},
+                ],
+            },
+        },
+    ],
+}
