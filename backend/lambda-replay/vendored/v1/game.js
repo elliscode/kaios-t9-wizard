@@ -220,6 +220,7 @@ var Game = (function () {
         state.wordCombo = 0;
         state.scoreMultiplier = 1;
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
+        if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
         // Only clear the typing buffer if THIS enemy was the locked one --
         // otherwise the player is mid-typing a different enemy and
         // shouldn't lose that progress just because some other one escaped.
@@ -233,6 +234,7 @@ var Game = (function () {
     if (state.lives <= 0) {
       state.mode = STATE.GAMEOVER;
       SaveGame.clear();
+      if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.GAME_OVER);
       return;
     }
     checkWaveComplete();
@@ -249,6 +251,12 @@ var Game = (function () {
     InputEngine.reset();
     state.mode = STATE.TRANSITION;
     state.transition = { timerMs: TRANSITION_DURATION_MS, isBoss: isBoss };
+    // Single shared cue for start-game/next-wave/boss-incoming, since every
+    // one of those paths already funnels through here (resetGame and
+    // proceedToNextWaveOrBoss both call this). Guarded: AudioEngine isn't
+    // loaded in the headless replay Lambda's sandbox (see backend/lambda-replay),
+    // and sound has no bearing on game logic/scoring anyway.
+    if (typeof AudioEngine !== "undefined") AudioEngine.play(SFX.JINGLE);
   }
 
   function updateTransition(dt) {
@@ -275,6 +283,7 @@ var Game = (function () {
       return true;
     });
     state.resolvedThisWave += 1;
+    if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.KILL);
     // Powerup rolls only happen on a player-typed kill — not on escapes
     // (checkCollisions) or on screenWipe's own kills — to avoid any risk of
     // cascading spawns.
@@ -423,6 +432,7 @@ var Game = (function () {
       return true;
     });
     if (!collected) return;
+    if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.POWERUP);
     // Set the flash BEFORE applying the effect: screenWipe's effect can
     // itself trigger checkWaveComplete() synchronously (via wipeScreen), and
     // that check needs to already see an active flash in order to defer the
@@ -489,10 +499,12 @@ var Game = (function () {
       state.wordCombo = 0;
       state.scoreMultiplier = 1;
       state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
+      if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
       if (state.lives <= 0) {
         state.mode = STATE.GAMEOVER;
         state.boss = null;
         SaveGame.clear();
+        if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.GAME_OVER);
       } else {
         spawnBossSentence(boss);
         SaveGame.save(state);
@@ -506,6 +518,7 @@ var Game = (function () {
     if (world === TOTAL_WORLDS) {
       state.mode = STATE.WIN;
       SaveGame.clear();
+      if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.WIN);
     } else if (state.bossRush) {
       // Skip straight to the next world's boss — jump wave to that world's
       // final wave number so enterTransition(true) lands on the right world
@@ -521,8 +534,12 @@ var Game = (function () {
   function handleBossSentenceCompleted() {
     state.boss.health -= 1;
     if (state.boss.health <= 0) {
+      // handleBossDefeated() plays its own cue (WIN fanfare, or the shared
+      // JINGLE via enterTransition for the next boss) -- no chirp here too,
+      // so the actual defeat moment doesn't get cluttered with both sounds.
       handleBossDefeated();
     } else {
+      if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.KILL);
       spawnBossSentence(state.boss);
       SaveGame.save(state);
     }
@@ -690,6 +707,7 @@ var Game = (function () {
         // still be "spending" a streak it already broke.
         state.scoreMultiplier = 1;
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
+        if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
       }
       return; // benign duplicate: no-op
     }
@@ -702,6 +720,10 @@ var Game = (function () {
       state.wordCombo += 1;
     }
     state.score += state.wordCombo * state.scoreMultiplier;
+    // The *completing* keypress gets its own distinct sound instead (KILL
+    // or POWERUP, played from handleKill/collectPowerup/
+    // handleBossSentenceCompleted, which know which one this actually was).
+    if (result.type !== 'kill' && typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.SUCCESS);
 
     if (result.type === 'kill' && !state.currentWordHadMistake) {
       state.scoreMultiplier += PERFECT_WORD_MULTIPLIER_BONUS;
@@ -730,7 +752,15 @@ var Game = (function () {
       // whatever's actually locked (or just got locked/killed) is an enemy.
       var scoringTargetId = (result.type === 'locked' || result.type === 'kill') ? result.enemyId : lockedIdBefore;
       var targetIsPowerup = scoringTargetId !== null && state.powerups.some(function (p) { return p.id === scoringTargetId; });
-      if (!targetIsPowerup) applyTypingResult(result);
+      if (!targetIsPowerup) {
+        applyTypingResult(result);
+      } else if ((result.type === 'locked' || result.type === 'progress') && typeof AudioEngine !== 'undefined') {
+        // Powerups skip applyTypingResult entirely (no score to add), but a
+        // non-final correct letter should still get the same tap feedback as
+        // a real word -- the completing letter still plays POWERUP instead,
+        // via collectPowerup below.
+        AudioEngine.play(SFX.SUCCESS);
+      }
 
       if (result.type === 'kill') {
         if (targetIsPowerup) {
