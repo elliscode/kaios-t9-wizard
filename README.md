@@ -11,9 +11,12 @@ Colored blocks carrying a word fall from the top of the screen toward a grey pla
 - **Targeting (lock-on)**: pressing a digit locks onto a candidate whose code starts with it. Powerups always win an ambiguous match over enemies (they're time-limited and worth prioritizing); within the same kind, whichever is closest to the player wins. Once locked, that target **cannot** be changed or abandoned — wrong digits are simply ignored (no penalty, no reset) until the locked code is fully typed.
 - **Lives**: start with 3, shown as red squares in the bottom-left HUD corner (uncapped — extra-life powerups can push it higher; past 5 it collapses to a `+N` suffix). An enemy or boss sentence reaching the player costs one life; 0 lives ends the run.
 - **Waves & Worlds**: defeating (or losing) all of a wave's enemies advances it. 10 waves make a World; a boss fight follows every World's 10th wave. Word length scales per-World via a shifting window (World 1 = lengths 2-6 ramping across its waves, up to World 5 = 10-12), and enemy color is a deterministic gradient by word length (LightGray → LimeGreen → Gold → DarkOrange → Crimson → DeepPink). A full-screen "WORLD N / WAVE M" (or "BOSS") announcement shows between stages. See `WORLD_LENGTH_RANGES`, `getWordLengthRangeForWave`, and `Colors.colorForWordLength` in `js/game.js`/`js/colors.js`.
-- **Bosses**: a large colored block with a health bar (`3 + (world-1)*2` segments). One real sentence at a time (pulled from classic public-domain novels, see [Sentence data](#sentence-data)) falls toward the player like an enemy — complete it in time to chip a health segment and get a new sentence; let it reach the player and lose a life instead (health unchanged). Long sentences word-wrap under the boss.
-- **Powerups**: killing a regular enemy has a small independent chance (tunable per type) to spawn a colored block that rises *away* from the player at the kill's location. Type its short code before it scrolls off-screen to collect it — miss it and it's lost, no penalty. Four types: **extra life** (white), **half speed** (lightblue, halves enemy fall speed for 10s), **half length** (lightcoral, shrinks word lengths — including every enemy currently on screen — for 10s), **screen wipe** (khaki, instantly clears all on-screen enemies). Collecting one flashes its name for 2s over live gameplay; a wave won't advance until any on-screen powerups and any in-progress flash have resolved, even if the last enemy is already gone.
+- **Bosses**: a colored block whose width scales with its own health (`3 + (world-1)*2` segments, each ~14px wide) — a tougher boss visibly reads as bigger. Health is carved directly into the block itself: an intact segment is indistinguishable from the rest of the boss's color, and each depleted segment turns background-colored, so defeating it looks like biting chunks out of its body. One real sentence at a time (pulled from classic public-domain novels, see [Sentence data](#sentence-data)) falls toward the player like an enemy — complete it in time to chip a segment and get a new sentence; let it reach the player and lose a life instead (health unchanged). The sentence's text freezes in place once it nears the player so a fast/long sentence can never scroll off-screen unread — the block itself keeps falling and can still collide independently of the frozen text. Long sentences word-wrap under the boss; there's no lock-on outline in boss mode since there's only ever one target.
+- **Powerups**: killing a regular enemy has a small independent chance (tunable per type) to spawn a colored block that rises *away* from the player at the kill's location. Type its short code before it scrolls off-screen to collect it — miss it and it's lost, no penalty. At most one powerup ever spawns per kill, even if multiple types' rolls hit at once, so two blocks can never stack unreadably on top of each other. Four types: **extra life** (white), **half speed** (lightblue, halves enemy fall speed for 10s), **half length** (lightcoral, shrinks word lengths — including every enemy currently on screen — for 10s), **screen wipe** (khaki, instantly clears all on-screen enemies). Collecting one flashes its name for 2s over live gameplay; a wave won't advance until any on-screen powerups and any in-progress flash have resolved, even if the last enemy is already gone.
+- **Legible overlaps**: the currently-locked word always renders on top of everything else, and — among the rest — a block lower on screen (closer to the player, more urgent) draws over one higher up, with powerups always drawing over enemies. Every word also gets a dim, semi-transparent backing panel so it stays readable no matter what's rendered behind it.
 - **Pause**: press **1** during play to pause/resume (blocks/boss stay visible but their words are hidden, to prevent reading ahead while frozen). The game also auto-pauses if a frame gap exceeds 500ms (tab backgrounded/suspended), and proactively pauses via `visibilitychange` the instant the tab is hidden.
+- **Save & resume**: progress checkpoints to `localStorage` at natural gameplay moments (kills, powerup pickups, wave/boss transitions, pausing). Closing the tab/app and reopening it restores the run — paused, so you get a moment to get oriented rather than being dropped straight back into falling enemies. See `js/save.js`.
+- **Boss rush (testing mode)**: press **\*** from the main menu to skip straight into World 1's boss and chain directly from one world's boss into the next, world by world, with no regular waves in between — a fast way to iterate on boss balance without replaying every wave. It ends in a distinct "BOSS RUSH COMPLETE" screen rather than "YOU WIN", since it's not a genuine full run.
 - **Word list**: a curated, filtered list of common conversational English words (not the full dictionary) — see [Word data](#word-data) below.
 
 ## Project structure
@@ -33,7 +36,8 @@ js/
   colors.js             Word-length -> color gradient + per-world boss colors
   input.js              InputEngine: the lock-on/typing state machine (core mechanic)
   render.js             All canvas drawing (play field, entities, HUD overlay, screen overlays)
-  game.js               State machine, game loop, waves/worlds/bosses/powerups, pause
+  save.js               SaveGame: localStorage checkpoint/restore for pausing/closing mid-run
+  game.js               State machine, game loop, waves/worlds/bosses/powerups, pause, boss rush
   main.js                Bootstrap: wires up keydown handling and starts the game
 data/
   words-data.js          Hard-coded word-by-length data (`WORDS_BY_LENGTH`), loaded via
@@ -50,7 +54,7 @@ No build step, no dependencies, no server required — just open `index.html` di
 
 For on-device KaiOS testing, sideload the directory as a packaged app using `manifest.webapp`.
 
-Controls: digit keys **2-9** to type, **1** to start/restart/pause/resume.
+Controls: digit keys **2-9** to type, **1** to start/pause/resume (and, from a game-over or win screen, to return to the main menu — pressing it again from there starts a new run), **\*** from the main menu for boss rush (see above).
 
 ## Layout & HUD
 
@@ -66,17 +70,18 @@ Controls: digit keys **2-9** to type, **1** to start/restart/pause/resume.
 
 ## Tuning knobs
 
-Game feel lives as named constants at the top of `js/game.js` — e.g. `SPAWN_INTERVAL_MS`, `ENEMY_SPEED_JITTER`, `enemyFallSpeedForLength`/`bossSentenceSpeedForWorld` (formulas), `WORLD_LENGTH_RANGES`, `BASE_BOSS_HEALTH_SEGMENTS`, `ENEMIES_PER_WAVE`, `TRANSITION_DURATION_MS`, `AUTO_PAUSE_THRESHOLD_MS`, and the `POWERUP_*` constants (probabilities, colors, display names, effect/flash durations, rise speed, code length). Only word length and enemy/boss speed scale with world/wave by design; spawn rate is intentionally flat.
+Game feel lives as named constants at the top of `js/game.js` — e.g. `SPAWN_INTERVAL_MS`, `ENEMY_SPEED_JITTER`, `enemyFallSpeedForLength`/`bossSentenceSpeedForWorld` (formulas), `WORLD_LENGTH_RANGES`, `BASE_BOSS_HEALTH_SEGMENTS`, `BOSS_SEGMENT_WIDTH`/`BOSS_SEGMENT_GAP`/`BOSS_SEGMENT_PADDING` (boss box width is derived from these plus its own health), `ENEMIES_PER_WAVE`, `TRANSITION_DURATION_MS`, `AUTO_PAUSE_THRESHOLD_MS`, and the `POWERUP_*` constants (probabilities, colors, display names, effect/flash durations, rise speed, code length). Only word length and enemy/boss speed scale with world/wave by design; spawn rate is intentionally flat.
 
 ## Current status
 
-Implemented: full roguelike loop (50 waves / 5 worlds / boss per world), T9 encoding, lock-on typing engine (with kind-aware tie-break, closest-to-player fallback, and unbreakable locks), word bank, sentence bank with no-repeat tracking, boss fights with health bars and word-wrapped multi-sentence typing, all four powerups, manual + auto-pause, dynamic viewport-filling canvas with an always-visible HUD overlay, win/game-over/restart flow.
+Implemented: full roguelike loop (50 waves / 5 worlds / boss per world), T9 encoding, lock-on typing engine (with kind-aware tie-break, closest-to-player fallback, and unbreakable locks), word bank, sentence bank with no-repeat tracking, boss fights with in-body health segments and word-wrapped multi-sentence typing (text freezes near the player so it can't scroll off-screen unread), all four powerups (capped at one spawn per kill), draw-order priority so the locked word and lower-on-screen blocks are never visually buried, manual + auto-pause, dynamic viewport-filling canvas with an always-visible HUD overlay, win/game-over/return-to-menu flow, localStorage save/resume across app close, and a boss-rush testing mode (`*` from the menu) for iterating on boss balance without replaying every wave.
 
-Not yet implemented: visual theme/sprites (enemies, powerups, boss, and player are still plain colored rectangles — icons are planned per-powerup), sound/music, and everything in the TODO list below.
+Not yet implemented: visual theme/sprites (enemies, powerups, boss, and player are still plain colored rectangles — icons are planned per-powerup), sound/music, gameplay event recording/stats, and everything in the TODO list below.
 
 ## TODO
 
 - [ ] Add score (separate from wave/kill count)
-- [ ] Add a global leaderboard — needs anti-cheat consideration; **research needed** on how to do this safely (e.g. server-side score validation, replay verification, rate limiting) before implementing
+- [ ] Add a global leaderboard — needs anti-cheat consideration; **research needed** on how to do this safely (e.g. server-side score validation, replay verification, rate limiting) before implementing. Boss rush runs are intentionally excluded from ever counting toward it (it's a testing/balance tool, not a real run).
+- [ ] Record full gameplay events (keypresses, kills, powerups, timestamps) to support post-run stats and an eventual leaderboard submission — designed but not yet built; revisit later.
 - [ ] Sprite art / visual theme (enemies, powerups, boss, and player currently placeholder rectangles; powerups specifically are meant to get unique icons)
 - [ ] Sound and music

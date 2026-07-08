@@ -25,7 +25,14 @@ var SaveGame = (function () {
       boss: state.boss,
       halfSpeedRemainingMs: state.halfSpeedRemainingMs,
       halfLengthRemainingMs: state.halfLengthRemainingMs,
-      usedSentences: state.usedSentences
+      usedSentences: state.usedSentences,
+      seed: state.seed,
+      inputLog: state.inputLog,
+      tickCount: state.tickCount,
+      // The RNG's live generator position, not just the seed -- resuming
+      // must continue the same random sequence a from-scratch replay of
+      // this seed + input log would produce, not restart it.
+      rngState: Rng.getState()
     };
 
     try {

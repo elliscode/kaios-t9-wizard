@@ -14,6 +14,9 @@
       } else if (e.key === '*') {
         e.preventDefault();
         Game.handleBossRushKey();
+      } else if (e.key === '#') {
+        e.preventDefault();
+        Game.handleQuitKey();
       }
     });
   });

@@ -15,6 +15,19 @@ var InputEngine = (function () {
     lockedEnemyId = null;
   }
 
+  // Save/restore this module's internal state around a headless replay
+  // (see Game.replayRun) -- InputEngine is a single shared singleton, so a
+  // replay run mutating buffer/lockedEnemyId would otherwise clobber
+  // whatever a live, in-progress game session had typed so far.
+  function snapshot() {
+    return { buffer: buffer, lockedEnemyId: lockedEnemyId };
+  }
+
+  function restoreSnapshot(snap) {
+    buffer = snap.buffer;
+    lockedEnemyId = snap.lockedEnemyId;
+  }
+
   function findById(enemies, id) {
     for (var i = 0; i < enemies.length; i++) {
       if (enemies[i].id === id) return enemies[i];
@@ -87,6 +100,8 @@ var InputEngine = (function () {
     getBuffer: getBuffer,
     getLockedEnemyId: getLockedEnemyId,
     reset: reset,
-    handleDigit: handleDigit
+    handleDigit: handleDigit,
+    snapshot: snapshot,
+    restoreSnapshot: restoreSnapshot
   };
 })();

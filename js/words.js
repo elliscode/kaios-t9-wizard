@@ -5,16 +5,16 @@ var WordBank = (function () {
     var MAX_ATTEMPTS = 10;
     var len, bucket, word;
     for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1));
+      len = minLen + Math.floor(Rng.next() * (maxLen - minLen + 1));
       bucket = wordsByLength[String(len)];
       if (!bucket || bucket.length === 0) continue;
-      word = bucket[Math.floor(Math.random() * bucket.length)];
+      word = bucket[Math.floor(Rng.next() * bucket.length)];
       if (!activeWordsSet || !activeWordsSet.has(word)) return word;
     }
     // Fallback after MAX_ATTEMPTS: accept a duplicate rather than loop forever.
-    len = minLen + Math.floor(Math.random() * (maxLen - minLen + 1));
+    len = minLen + Math.floor(Rng.next() * (maxLen - minLen + 1));
     bucket = wordsByLength[String(len)];
-    return bucket[Math.floor(Math.random() * bucket.length)];
+    return bucket[Math.floor(Rng.next() * bucket.length)];
   }
 
   return {

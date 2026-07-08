@@ -8,6 +8,10 @@ var Game = (function () {
   var STARTING_LIVES = 3;
   var TRANSITION_DURATION_MS = 2000;
   var AUTO_PAUSE_THRESHOLD_MS = 500; // a frame gap this large means the tab was backgrounded/suspended
+  // Fixed simulation step (~30 ticks/sec) -- decouples game logic from render
+  // framerate (which still runs at requestAnimationFrame's native rate) so a
+  // seed + input log can be replayed deterministically (see replayRun below).
+  var TICK_MS = 33;
 
   // Tunable, NOT wave-scaled: only word length scales with wave/world per spec.
   var SPAWN_INTERVAL_MS = 1800;
@@ -97,6 +101,10 @@ var Game = (function () {
       waveCompletePending: false,
       spawnAccumulator: 0,
       lastTimestamp: null,
+      simAccumulator: 0,
+      tickCount: 0,
+      seed: null,
+      inputLog: null,
       player: {
         x: CANVAS_WIDTH / 2 - 20,
         y: CANVAS_HEIGHT - 20,
@@ -118,13 +126,13 @@ var Game = (function () {
 
   function findNonOverlappingX(width) {
     for (var attempt = 0; attempt < 5; attempt++) {
-      var x = Math.floor(Math.random() * (CANVAS_WIDTH - width));
+      var x = Math.floor(Rng.next() * (CANVAS_WIDTH - width));
       var overlaps = state.enemies.some(function (e) {
         return e.y < 40 && x < e.x + e.width && x + width > e.x;
       });
       if (!overlaps) return x;
     }
-    return Math.floor(Math.random() * (CANVAS_WIDTH - width));
+    return Math.floor(Rng.next() * (CANVAS_WIDTH - width));
   }
 
   function spawnEnemy() {
@@ -150,7 +158,7 @@ var Game = (function () {
     var width = Math.max(MIN_BLOCK_WIDTH, word.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
 
     var x = findNonOverlappingX(width);
-    var jitteredBaseSpeed = enemyFallSpeedForLength(word.length) * (1 + (Math.random() * 2 - 1) * ENEMY_SPEED_JITTER);
+    var jitteredBaseSpeed = enemyFallSpeedForLength(word.length) * (1 + (Rng.next() * 2 - 1) * ENEMY_SPEED_JITTER);
     var color = Colors.colorForWordLength(word.length);
 
     state.enemies.push(Enemy.createEnemy({
@@ -297,11 +305,11 @@ var Game = (function () {
     // hit, which one actually spawns isn't biased toward whichever key
     // happens to be listed first in POWERUP_PROBABILITIES.
     for (var i = types.length - 1; i > 0; i--) {
-      var j = Math.floor(Math.random() * (i + 1));
+      var j = Math.floor(Rng.next() * (i + 1));
       var tmp = types[i]; types[i] = types[j]; types[j] = tmp;
     }
     for (var k = 0; k < types.length; k++) {
-      if (Math.random() < POWERUP_PROBABILITIES[types[k]]) {
+      if (Rng.next() < POWERUP_PROBABILITIES[types[k]]) {
         spawnPowerup(types[k], x, y);
         return; // at most one powerup per kill, ever -- see comment above.
       }
@@ -541,6 +549,14 @@ var Game = (function () {
     // resume the *previous* run instead of starting the new one.
     SaveGame.clear();
     state = makeInitialState();
+    // Stand-in for a future server-issued seed (e.g. POST /start-run) -- the
+    // one legitimate remaining use of the real Math.random(), since the seed
+    // itself doesn't need to be reproducible, only everything derived from it.
+    // A real run keeps its seed + input log so it can later be replayed
+    // (see replayRun) to verify a submitted score.
+    state.seed = Math.floor(Math.random() * 0x7fffffff);
+    state.inputLog = [];
+    Rng.seed(state.seed);
     InputEngine.reset();
     enterTransition(false);
   }
@@ -553,6 +569,10 @@ var Game = (function () {
     state = makeInitialState();
     state.bossRush = true;
     state.wave = WAVES_PER_WORLD;
+    // Still seeded (so its randomness behaves identically to a real run),
+    // but state.seed/inputLog are deliberately left null -- boss rush never
+    // counts toward the leaderboard, so recording it would be pure overhead.
+    Rng.seed(Math.floor(Math.random() * 0x7fffffff));
     InputEngine.reset();
     enterTransition(true);
   }
@@ -599,6 +619,16 @@ var Game = (function () {
     }
   }
 
+  // Only available while paused (not a general "abandon run" shortcut mid-
+  // gameplay) -- quitting is a deliberate choice to abandon the run, so the
+  // save is cleared immediately rather than left around to be resumed later.
+  function handleQuitKey() {
+    if (state.mode === STATE.PAUSED) {
+      SaveGame.clear();
+      returnToMenu();
+    }
+  }
+
   function handleBossRushKey() {
     if (state.mode === STATE.MENU || state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
       startBossRush();
@@ -611,6 +641,12 @@ var Game = (function () {
       // typing doesn't accidentally skip past a menu/game-over/win screen.
       return;
     }
+    // Tagging with the current tick (not a wall-clock time) is what makes
+    // this replayable: there are no partial ticks (the fixed-step loop only
+    // ever calls update() on whole TICK_MS boundaries), so a keypress always
+    // lands against "state as of the last completed tick" -- replaying the
+    // same key at the same tick count reproduces the exact same outcome.
+    if (state.inputLog) state.inputLog.push({ tick: state.tickCount, key: digit });
     if (state.mode === STATE.PLAYING) {
       var typable = state.enemies.concat(state.powerups);
       var result = InputEngine.handleDigit(digit, typable);
@@ -636,22 +672,69 @@ var Game = (function () {
 
   function loop(timestamp) {
     if (state.lastTimestamp === null) state.lastTimestamp = timestamp;
-    var dt = timestamp - state.lastTimestamp;
+    var frameDt = timestamp - state.lastTimestamp;
     state.lastTimestamp = timestamp;
 
     if (isActiveSimulationMode()) {
-      if (dt > AUTO_PAUSE_THRESHOLD_MS) {
+      if (frameDt > AUTO_PAUSE_THRESHOLD_MS) {
         // A gap this large means the tab was backgrounded/suspended — pause
         // instead of applying that huge delta (which would otherwise jump
-        // enemies/boss forward or fire a burst of catch-up spawns).
+        // enemies/boss forward or fire a burst of catch-up spawns). This also
+        // bounds the catch-up loop below to a small, safe number of ticks,
+        // since frameDt can never exceed this threshold once we reach it.
         pauseGame();
       } else {
-        update(dt);
+        // Simulation advances in fixed TICK_MS steps regardless of the real
+        // render framerate, so a run is fully reproducible from its seed +
+        // input log alone (see replayRun) -- rendering still happens once per
+        // real frame below, just decoupled from how many ticks it took.
+        state.simAccumulator += frameDt;
+        while (state.simAccumulator >= TICK_MS) {
+          update(TICK_MS);
+          state.simAccumulator -= TICK_MS;
+          state.tickCount += 1;
+        }
       }
     }
     Render.renderFrame(ctx, state);
 
     requestAnimationFrame(loop);
+  }
+
+  // Re-simulates a run headlessly from just its seed and input log, and
+  // returns the resulting final state -- the local proof that a submitted
+  // score is verifiable (a future server would do exactly this, and reject
+  // a submission whose replay doesn't reproduce the claimed result). Since
+  // this module has no DOM dependency outside init()'s canvas/event wiring,
+  // this same function could plausibly run server-side later too.
+  //
+  // Temporarily swaps the module-level state/ctx rather than threading state
+  // through every function as a parameter -- much smaller and lower-risk
+  // than making the whole module state-injectable, and safe here because JS
+  // is single-threaded (nothing else can observe state mid-swap).
+  function replayRun(seed, inputLog, tickCount) {
+    var savedState = state;
+    var savedCtx = ctx;
+    var savedInput = InputEngine.snapshot();
+    ctx = null;
+    Rng.seed(seed);
+    state = makeInitialState();
+    enterTransition(false); // mirrors resetGame() minus the seed/save/inputLog bookkeeping
+
+    var inputIndex = 0;
+    for (var tick = 0; tick < tickCount; tick++) {
+      while (inputIndex < inputLog.length && inputLog[inputIndex].tick === tick) {
+        handleDigitKey(inputLog[inputIndex].key);
+        inputIndex++;
+      }
+      if (isActiveSimulationMode()) update(TICK_MS);
+    }
+
+    var result = state;
+    state = savedState;
+    ctx = savedCtx;
+    InputEngine.restoreSnapshot(savedInput);
+    return result;
   }
 
   // Rebuilds a state object from a save payload. Starts from a fresh
@@ -679,6 +762,14 @@ var Game = (function () {
     restored.usedSentences = saved.usedSentences || {};
     restored.pausedFromMode = saved.resumeMode;
     restored.mode = STATE.PAUSED;
+    restored.seed = saved.seed || null;
+    restored.inputLog = saved.inputLog || null;
+    restored.tickCount = saved.tickCount || 0;
+    // Restore the RNG's exact live generator position (not just re-seed) so
+    // post-resume randomness continues the same sequence a from-scratch
+    // replay of this seed + input log would produce, instead of restarting
+    // it -- see Rng.getState()'s comment in js/rng.js for why this matters.
+    if (saved.rngState !== undefined) Rng.setState(saved.rngState);
     return restored;
   }
 
@@ -714,8 +805,10 @@ var Game = (function () {
     handleDigitKey: handleDigitKey,
     handleMenuKey: handleMenuKey,
     handleBossRushKey: handleBossRushKey,
+    handleQuitKey: handleQuitKey,
     getWordLengthRangeForWave: getWordLengthRangeForWave,
     worldOfWave: worldOfWave,
-    waveInWorld: waveInWorld
+    waveInWorld: waveInWorld,
+    replayRun: replayRun
   };
 })();

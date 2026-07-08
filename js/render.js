@@ -292,7 +292,8 @@ var Render = (function () {
     ctx.textAlign = 'center';
     ctx.fillText('PAUSED', CANVAS_WIDTH / 2, 30);
     ctx.font = '10px monospace';
-    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 30);
+    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 44);
+    ctx.fillText('Press # to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 28);
     ctx.textAlign = 'left';
   }
 
