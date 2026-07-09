@@ -805,6 +805,14 @@ var Game = (function () {
   // run and hands it over.
   function handleNameSubmitted(name) {
     state.mode = STATE.SUBMITTING;
+    // Hide (and thus deactivate) the real <input> immediately, not once the
+    // request resolves -- otherwise it stays focused/active for the whole
+    // round trip, and a second Enter press in that window re-fires this
+    // same handler, sending a duplicate /submit before the first response
+    // even comes back. This runs synchronously before Api.submit() is even
+    // called, so it closes the race even against a duplicate hardware
+    // keydown event for the same physical press.
+    if (typeof NameEntry !== 'undefined') NameEntry.hide();
     if (typeof Api === 'undefined') return;
     var thisState = state;
     Api.submit({
@@ -815,7 +823,6 @@ var Game = (function () {
       canvas_height: Layout.CANVAS_HEIGHT,
       input_log: state.inputLog
     }).then(function (result) {
-      if (typeof NameEntry !== 'undefined') NameEntry.hide();
       if (state !== thisState) return;
       if (result.ok && result.body && result.body.score != null) {
         state.submitResult = { score: result.body.score };

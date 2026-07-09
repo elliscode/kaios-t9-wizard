@@ -218,7 +218,8 @@ def create_leaderboard_entry(run_id, display_name, score, version):
     return python_data
 
 
-LEADERBOARD_LIMIT = 100
+LEADERBOARD_LIMIT = 10  # matches LEADERBOARD_ROWS in frontend-v3/js/render.js -- no point
+# fetching more than the screen ever actually shows
 
 
 def get_leaderboard(version):

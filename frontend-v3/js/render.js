@@ -263,8 +263,12 @@ var Render = (function () {
     ctx.fillText('T9 WIZARD', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
     ctx.font = '10px monospace';
     ctx.fillText('Press 1 to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
-    ctx.fillText('Press * for boss rush', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
-    ctx.fillText('Press 0 for leaderboard', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    // Boss rush was a boss-balance testing tool -- balance is settled now,
+    // so it's off the menu. Left commented (not deleted) since main.js's
+    // '*' case for it is disabled the same way -- trivial to bring both
+    // back if it's needed again later.
+    // ctx.fillText('Press * for boss rush', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText('Press * for leaderboard', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
 
@@ -388,7 +392,7 @@ var Render = (function () {
       });
     }
     ctx.textAlign = 'center';
-    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 28);
+    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36);
     ctx.textAlign = 'left';
   }
 
@@ -403,8 +407,8 @@ var Render = (function () {
     ctx.textAlign = 'center';
     ctx.fillText('PAUSED', CANVAS_WIDTH / 2, 30);
     ctx.font = '10px monospace';
-    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 44);
-    ctx.fillText('Press # to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 28);
+    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 52);
+    ctx.fillText('Press * to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36);
     ctx.textAlign = 'left';
   }
 

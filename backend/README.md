@@ -88,7 +88,8 @@ any endpoint-specific logic runs):
   `tick_count`, `canvas_width`, `canvas_height`, `input_log`), re-simulates it
   via the replay lambda using the *stored* seed and version (never anything
   client-supplied), and only records a leaderboard entry if the replay itself
-  reaches a win. 400s if the run's stored version doesn't match `<N>`.
+  reaches a win *or* a game over — either is a legitimate, verified terminal
+  state. 400s if the run's stored version doesn't match `<N>`.
   `run_id` is single-use — deleted from DynamoDB immediately after a
   successful submission.
 - `GET /api/v<N>/leaderboard` — returns the top 100 leaderboard entries for
