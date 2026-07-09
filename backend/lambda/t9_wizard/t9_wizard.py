@@ -73,10 +73,13 @@ def submit_route(event, version):
     replay = json.loads(invoke_result["Payload"].read())
 
     # The server only trusts what its own replay produced -- never what the
-    # client claims happened. Anything short of an actual win (still
-    # playing, game over, etc.) doesn't count.
-    if replay.get("mode") != "win":
-        return format_response(event=event, http_code=400, body="Run did not reach a valid win state")
+    # client claims happened. A run still in progress (the replay somehow
+    # didn't reach a terminal state) doesn't count, but both a real win and
+    # a game over are legitimate, submittable outcomes -- a high score
+    # reached without clearing all 5 worlds is still a real result worth
+    # showing on the leaderboard.
+    if replay.get("mode") not in ("win", "gameover"):
+        return format_response(event=event, http_code=400, body="Run did not reach a valid end state")
 
     score = replay["score"]
     create_leaderboard_entry(run_id, validated["display_name"], score, game_version)

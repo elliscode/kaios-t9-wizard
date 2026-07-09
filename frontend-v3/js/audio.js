@@ -24,7 +24,7 @@ var AudioEngine = (function () {
   // it entirely, while barely registering against a longer sound. This
   // lookahead gives every sound guaranteed headroom without adding
   // noticeable input-to-sound lag.
-  var SCHEDULE_LOOKAHEAD = 0.02;
+  var SCHEDULE_LOOKAHEAD = 0.03;
 
   var NOTE_OFFSETS = { C: -9, "C#": -8, D: -7, "D#": -6, E: -5, F: -4, "F#": -3, G: -2, "G#": -1, A: 0, "A#": 1, B: 2 };
 

@@ -13,3 +13,25 @@ html, body {
   height: 100vh;
   image-rendering: pixelated;
 }
+
+/* Sits over the canvas's NAME_ENTRY overlay (see render.js's
+   renderNameEntryOverlay), which draws the dimmed backdrop and label --
+   this is just the real, focusable text field itself. Hidden by default;
+   js/nameentry.js toggles display on show()/hide(). */
+#name-entry-input {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 70vw;
+  max-width: 200px;
+  padding: 6px 8px;
+  font-family: monospace;
+  font-size: 14px;
+  text-align: center;
+  background: #000;
+  color: #fff;
+  border: 1px solid #fff;
+  box-sizing: border-box;
+}

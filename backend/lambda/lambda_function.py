@@ -32,7 +32,7 @@ def route(event):
     # any route-specific logic runs.
     version = extract_version(event)
     if version is None:
-        return format_response(event=event, http_code=404, body={"message": "Not found"})
+        return format_response(event=event, http_code=403, body={"message": "Forbidden"})
 
     if path_equals(event=event, method="POST", path=f"/api/v{version}/ping"):
         return format_response(event=event, http_code=200, body="pong")

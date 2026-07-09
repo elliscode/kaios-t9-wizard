@@ -2,7 +2,16 @@ var Game = (function () {
   var CANVAS_WIDTH = Layout.CANVAS_WIDTH;
   var CANVAS_HEIGHT = Layout.CANVAS_HEIGHT;
 
-  var STATE = { MENU: 'menu', PLAYING: 'playing', TRANSITION: 'transition', BOSS: 'boss', PAUSED: 'paused', GAMEOVER: 'gameover', WIN: 'win' };
+  var STATE = {
+    MENU: 'menu', PLAYING: 'playing', TRANSITION: 'transition', BOSS: 'boss', PAUSED: 'paused',
+    GAMEOVER: 'gameover', WIN: 'win',
+    // Real-backend round trip: CONNECTING while waiting on POST /start (see
+    // resetGame), NAME_ENTRY/SUBMITTING/SUBMITTED around POST /submit on a
+    // genuine win (see enterNameEntry/handleNameSubmitted), LEADERBOARD for
+    // GET /leaderboard from the menu (see enterLeaderboard).
+    CONNECTING: 'connecting', NAME_ENTRY: 'name_entry', SUBMITTING: 'submitting', SUBMITTED: 'submitted',
+    LEADERBOARD: 'leaderboard'
+  };
 
   var ENEMIES_PER_WAVE = 20;
   var STARTING_LIVES = 3;
@@ -111,6 +120,11 @@ var Game = (function () {
       tickCount: 0,
       seed: null,
       inputLog: null,
+      runId: null,
+      submitResult: null,
+      submitError: null,
+      leaderboardEntries: null,
+      leaderboardError: null,
       score: 0,
       scoreMultiplier: 1,
       wordCombo: 0,
@@ -609,22 +623,54 @@ var Game = (function () {
     }
   }
 
-  function resetGame() {
+  // A fresh run's seed comes from the server (POST /start) so the run_id it
+  // returns can later be replayed server-side (see backend/lambda-replay) to
+  // verify a submitted score -- a client-chosen seed would let a player
+  // submit a fabricated input_log/score pair with no way to catch it.
+  // CONNECTING is shown for however long that fetch takes; if it fails
+  // (offline, timeout), the run still starts -- with a local fallback seed
+  // and runId left null -- rather than blocking play entirely, matching the
+  // "never let X break gameplay" approach already used by SaveGame/AudioEngine.
+  // The one cost of that fallback: a run started offline can never be
+  // submitted, since there's no run_id for the server to verify against.
+  function beginRun(afterSeeded) {
     // Clear any existing save immediately — otherwise, if the app closes
     // before the first checkpoint of this fresh run, the next launch would
     // resume the *previous* run instead of starting the new one.
     SaveGame.clear();
     state = makeInitialState();
-    // Stand-in for a future server-issued seed (e.g. POST /start-run) -- the
-    // one legitimate remaining use of the real Math.random(), since the seed
-    // itself doesn't need to be reproducible, only everything derived from it.
-    // A real run keeps its seed + input log so it can later be replayed
-    // (see replayRun) to verify a submitted score.
-    state.seed = Math.floor(Math.random() * 0x7fffffff);
+    // Every key handler no-ops outside the modes it explicitly checks, and
+    // none of them list CONNECTING, so the player can't trigger another
+    // state reassignment while this fetch is in flight in practice -- this
+    // is just cheap insurance against a stale callback mutating a
+    // since-replaced state object if that ever stops being true.
+    var thisRun = state;
+    state.mode = STATE.CONNECTING;
     state.inputLog = [];
-    Rng.seed(state.seed);
-    InputEngine.reset();
-    enterTransition(false);
+    if (typeof Api === 'undefined') {
+      thisRun.seed = Math.floor(Math.random() * 0x7fffffff);
+      Rng.seed(thisRun.seed);
+      afterSeeded();
+      return;
+    }
+    Api.start().then(function (result) {
+      if (state !== thisRun) return; // superseded while the fetch was in flight
+      if (result.ok && result.body && result.body.run_id) {
+        thisRun.runId = result.body.run_id;
+        thisRun.seed = result.body.seed;
+      } else {
+        thisRun.seed = Math.floor(Math.random() * 0x7fffffff);
+      }
+      Rng.seed(thisRun.seed);
+      afterSeeded();
+    });
+  }
+
+  function resetGame() {
+    beginRun(function () {
+      InputEngine.reset();
+      enterTransition(false);
+    });
   }
 
   // Testing/balance-tuning aid: play through only the bosses, world by
@@ -673,10 +719,30 @@ var Game = (function () {
     state.pausedFromMode = null;
   }
 
+  // A win only counts toward the leaderboard if it has a run_id (the
+  // server-issued seed round trip actually succeeded -- see beginRun) and
+  // isn't a boss-rush practice run (startBossRush deliberately never sets
+  // one, so this second check is mostly redundant with the first, but
+  // makes the real requirement explicit rather than relying on that as an
+  // implementation detail).
+  function isRunSubmittable() {
+    return !state.bossRush && state.runId != null;
+  }
+
   function handleMenuKey() {
     if (state.mode === STATE.MENU) {
       resetGame();
-    } else if (state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
+    } else if (state.mode === STATE.WIN || state.mode === STATE.GAMEOVER) {
+      // A game over is a legitimate, submittable result too (see
+      // submit_route) -- not just a real win. Same gate either way: no
+      // run_id (offline start, or a boss-rush practice run) just returns to
+      // the menu instead.
+      if (isRunSubmittable()) {
+        enterNameEntry();
+      } else {
+        returnToMenu();
+      }
+    } else if (state.mode === STATE.SUBMITTED || state.mode === STATE.LEADERBOARD) {
       returnToMenu();
     } else if (state.mode === STATE.PAUSED) {
       resumeGame();
@@ -699,6 +765,67 @@ var Game = (function () {
     if (state.mode === STATE.MENU || state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
       startBossRush();
     }
+  }
+
+  // '0' is otherwise unused across every screen, so the menu repurposes it
+  // for a quick "view leaderboard" shortcut rather than needing a full menu
+  // system just for this one extra option.
+  function handleLeaderboardKey() {
+    if (state.mode === STATE.MENU) {
+      enterLeaderboard();
+    }
+  }
+
+  function enterLeaderboard() {
+    state.mode = STATE.LEADERBOARD;
+    state.leaderboardEntries = null;
+    state.leaderboardError = null;
+    if (typeof Api === 'undefined') return;
+    var thisState = state;
+    Api.leaderboard().then(function (result) {
+      if (state !== thisState) return;
+      if (result.ok && result.body && result.body.leaderboard) {
+        state.leaderboardEntries = result.body.leaderboard;
+      } else {
+        state.leaderboardError = 'Could not load leaderboard';
+      }
+    });
+  }
+
+  function enterNameEntry() {
+    state.mode = STATE.NAME_ENTRY;
+    if (typeof NameEntry !== 'undefined') NameEntry.show(handleNameSubmitted);
+  }
+
+  // Fires once the player confirms a name in the real <input> (see
+  // js/nameentry.js) on a genuine, submittable win. The server is the only
+  // thing that ever gets to say whether the run was legitimate and what it
+  // actually scored (see submit_route/backend/lambda-replay) -- this just
+  // packages up exactly what replayRun itself would need to reproduce the
+  // run and hands it over.
+  function handleNameSubmitted(name) {
+    state.mode = STATE.SUBMITTING;
+    if (typeof Api === 'undefined') return;
+    var thisState = state;
+    Api.submit({
+      run_id: state.runId,
+      display_name: name,
+      tick_count: state.tickCount,
+      canvas_width: Layout.CANVAS_WIDTH,
+      canvas_height: Layout.CANVAS_HEIGHT,
+      input_log: state.inputLog
+    }).then(function (result) {
+      if (typeof NameEntry !== 'undefined') NameEntry.hide();
+      if (state !== thisState) return;
+      if (result.ok && result.body && result.body.score != null) {
+        state.submitResult = { score: result.body.score };
+        state.submitError = null;
+      } else {
+        state.submitResult = null;
+        state.submitError = (result.body && result.body.message) || 'Score submission failed';
+      }
+      state.mode = STATE.SUBMITTED;
+    });
   }
 
   // Scoring engine: an escalating per-word combo (1, 2, 3, ... for each
@@ -896,6 +1023,7 @@ var Game = (function () {
     restored.mode = STATE.PAUSED;
     restored.seed = saved.seed || null;
     restored.inputLog = saved.inputLog || null;
+    restored.runId = saved.runId || null;
     restored.tickCount = saved.tickCount || 0;
     restored.score = saved.score || 0;
     restored.scoreMultiplier = saved.scoreMultiplier || 1;
@@ -942,6 +1070,7 @@ var Game = (function () {
     handleMenuKey: handleMenuKey,
     handleBossRushKey: handleBossRushKey,
     handleQuitKey: handleQuitKey,
+    handleLeaderboardKey: handleLeaderboardKey,
     getWordLengthRangeForWave: getWordLengthRangeForWave,
     worldOfWave: worldOfWave,
     waveInWorld: waveInWorld,

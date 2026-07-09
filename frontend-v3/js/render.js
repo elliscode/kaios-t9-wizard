@@ -264,6 +264,7 @@ var Render = (function () {
     ctx.font = '10px monospace';
     ctx.fillText('Press 1 to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
     ctx.fillText('Press * for boss rush', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText('Press 0 for leaderboard', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
     ctx.textAlign = 'left';
   }
 
@@ -279,7 +280,8 @@ var Render = (function () {
     var wiw = Game.waveInWorld(state.wave);
     ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
-    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    var submittable = !state.bossRush && state.runId != null;
+    ctx.fillText(submittable ? 'Press 1 to submit score' : 'Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
     ctx.textAlign = 'left';
   }
 
@@ -296,7 +298,97 @@ var Render = (function () {
     ctx.font = '10px monospace';
     ctx.fillText(state.bossRush ? 'All 5 bosses defeated' : 'All 5 worlds cleared', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
+    var submittable = !state.bossRush && state.runId != null;
+    ctx.fillText(submittable ? 'Press 1 to submit score' : 'Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    ctx.textAlign = 'left';
+  }
+
+  function renderConnectingOverlay(ctx) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Connecting...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    ctx.textAlign = 'left';
+  }
+
+  // The real, focusable <input> (see js/nameentry.js) is a DOM element
+  // positioned via CSS on top of the canvas -- this just draws the dimmed
+  // backdrop and label behind it, the same "overlay" treatment as every
+  // other full-screen mode here.
+  function renderNameEntryOverlay(ctx) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Enter your name:', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
+    ctx.textAlign = 'left';
+  }
+
+  function renderSubmittingOverlay(ctx) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Submitting score...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    ctx.textAlign = 'left';
+  }
+
+  function renderSubmittedOverlay(ctx, state) {
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    if (state.submitError) {
+      ctx.fillText('SUBMIT FAILED', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 24);
+      ctx.font = '10px monospace';
+      ctx.fillText(state.submitError, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    } else {
+      ctx.fillText('SCORE SUBMITTED', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 24);
+      ctx.font = '10px monospace';
+      ctx.fillText('Score: ' + Math.floor(state.submitResult.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    }
     ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    ctx.textAlign = 'left';
+  }
+
+  var LEADERBOARD_ROWS = 10;
+
+  function renderLeaderboardOverlay(ctx, state) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('LEADERBOARD', CANVAS_WIDTH / 2, 24);
+    ctx.font = '10px monospace';
+
+    if (state.leaderboardError) {
+      ctx.fillText(state.leaderboardError, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    } else if (state.leaderboardEntries === null) {
+      ctx.fillText('Loading...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    } else if (state.leaderboardEntries.length === 0) {
+      ctx.fillText('No scores yet', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    } else {
+      ctx.textAlign = 'left';
+      var rows = state.leaderboardEntries.slice(0, LEADERBOARD_ROWS);
+      var rowHeight = 16;
+      var startY = 48;
+      rows.forEach(function (entry, i) {
+        var name = String(entry.display_name || '').slice(0, 12);
+        var line = (i + 1) + '. ' + name;
+        ctx.fillText(line, 16, startY + i * rowHeight);
+        ctx.textAlign = 'right';
+        ctx.fillText(String(Math.floor(entry.score)), CANVAS_WIDTH - 16, startY + i * rowHeight);
+        ctx.textAlign = 'left';
+      });
+    }
+    ctx.textAlign = 'center';
+    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 28);
     ctx.textAlign = 'left';
   }
 
@@ -366,6 +458,11 @@ var Render = (function () {
     if (effectiveMode(state) === 'transition') renderTransitionOverlay(ctx, state);
     if (state.mode === 'win') renderWinOverlay(ctx, state);
     if (state.mode === 'paused') renderPauseOverlay(ctx, state);
+    if (state.mode === 'connecting') renderConnectingOverlay(ctx);
+    if (state.mode === 'name_entry') renderNameEntryOverlay(ctx);
+    if (state.mode === 'submitting') renderSubmittingOverlay(ctx);
+    if (state.mode === 'submitted') renderSubmittedOverlay(ctx, state);
+    if (state.mode === 'leaderboard') renderLeaderboardOverlay(ctx, state);
     if (state.powerupFlash) renderPowerupFlash(ctx, state);
 
     // Drawn last so it's always on top — never obscured by gameplay behind
