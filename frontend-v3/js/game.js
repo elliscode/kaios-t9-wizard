@@ -379,10 +379,26 @@ var Game = (function () {
     checkWaveComplete();
   }
 
+  // Screen wipe should score exactly as if the player had typed every
+  // on-screen enemy perfectly, back to back, closest to the player first
+  // (the order they'd naturally be typed in) -- same per-letter combo
+  // growth and per-word multiplier bump as real typing, just driven by
+  // synthetic results instead of real keypresses. Deliberately ignores any
+  // partial progress already typed into whichever enemy was locked when the
+  // powerup landed (a rare, small overcount) rather than adding the
+  // complexity of reconciling it against InputEngine's buffer.
   function wipeScreen() {
-    var count = state.enemies.length;
+    var order = state.enemies.slice().sort(function (a, b) { return b.y - a.y; });
+    order.forEach(function (enemy) {
+      var len = enemy.word.length;
+      for (var i = 0; i < len; i++) {
+        var firstLetter = i === 0;
+        var isLast = i === len - 1;
+        applyScoreForResult({ type: isLast ? 'kill' : 'progress', firstLetter: firstLetter });
+      }
+    });
+    state.resolvedThisWave += state.enemies.length;
     state.enemies = [];
-    state.resolvedThisWave += count;
     InputEngine.reset();
     checkWaveComplete();
   }
@@ -691,12 +707,26 @@ var Game = (function () {
   // imperfect one. Shared unmodified by regular enemies and the boss (a
   // full boss sentence is just treated as one long word, per design) -- see
   // the plan's worked "doggy"/"litter" example for the exact intended math.
-  // `result` comes straight from InputEngine.handleDigit: `firstLetter`
-  // marks the start of a fresh word (including a single-letter word's only
-  // keypress, which never passes through 'locked'), and `benign` marks a
-  // rejected digit that matches the previously-typed character -- KaiOS
-  // hardware can send one physical press as 2-3 duplicate events, and those
-  // are never treated as real mistakes.
+  // `result.firstLetter` marks the start of a fresh word (including a
+  // single-letter word's only keypress, which never passes through
+  // 'locked'). Split out from applyTypingResult so wipeScreen can award the
+  // same per-letter combo growth and per-word multiplier bump for its
+  // synthetic "perfect kill" results without also triggering the
+  // real-typing SUCCESS sound (which would spam a burst of overlapping taps
+  // for every wiped enemy).
+  function applyScoreForResult(result) {
+    if (result.firstLetter) {
+      state.wordCombo = 1;
+      state.currentWordHadMistake = false;
+    } else {
+      state.wordCombo += 1;
+    }
+    state.score += state.wordCombo * state.scoreMultiplier;
+    if (result.type === 'kill' && !state.currentWordHadMistake) {
+      state.scoreMultiplier += PERFECT_WORD_MULTIPLIER_BONUS;
+    }
+  }
+
   function applyTypingResult(result) {
     if (result.type === 'wrong') {
       if (!result.benign) {
@@ -713,21 +743,11 @@ var Game = (function () {
     }
     if (result.type !== 'locked' && result.type !== 'progress' && result.type !== 'kill') return; // 'miss'
 
-    if (result.firstLetter) {
-      state.wordCombo = 1;
-      state.currentWordHadMistake = false;
-    } else {
-      state.wordCombo += 1;
-    }
-    state.score += state.wordCombo * state.scoreMultiplier;
+    applyScoreForResult(result);
     // The *completing* keypress gets its own distinct sound instead (KILL
     // or POWERUP, played from handleKill/collectPowerup/
     // handleBossSentenceCompleted, which know which one this actually was).
     if (result.type !== 'kill' && typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.SUCCESS);
-
-    if (result.type === 'kill' && !state.currentWordHadMistake) {
-      state.scoreMultiplier += PERFECT_WORD_MULTIPLIER_BONUS;
-    }
   }
 
   function handleDigitKey(digit) {
