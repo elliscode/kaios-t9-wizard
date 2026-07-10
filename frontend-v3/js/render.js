@@ -14,7 +14,9 @@ var Render = (function () {
   // happening" (playing/transition/boss) so the frozen frame still renders
   // as whatever it was the instant before pausing, rather than blanking out.
   function effectiveMode(state) {
-    return state.mode === 'paused' ? state.pausedFromMode : state.mode;
+    // confirm_quit is entered from paused, over the same frozen frame -- same
+    // "what should still render underneath" unwrapping as paused itself.
+    return (state.mode === 'paused' || state.mode === 'confirm_quit') ? state.pausedFromMode : state.mode;
   }
 
   // Converts a count of typed digits into a character index into `display`,
@@ -328,6 +330,14 @@ var Render = (function () {
     ctx.font = '12px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('Enter your name:', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
+    // Sits below the real <input> (see js/nameentry.js/css/style.css), which
+    // is centered on the canvas via CSS -- explains why the name won't show
+    // up immediately as typed (see create_leaderboard_entry/
+    // create_pending_name in backend/lambda/t9_wizard/utils.py).
+    ctx.font = '10px monospace';
+    ctx.fillText('All leaderboard names are', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 30);
+    ctx.fillText('subject to manual approval.', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 44);
+    ctx.fillText('Temporary name: Player NNNN', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 62);
     ctx.textAlign = 'left';
   }
 
@@ -392,6 +402,7 @@ var Render = (function () {
       });
     }
     ctx.textAlign = 'center';
+    ctx.fillText('Press * for top-500 leaderboard', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 52);
     ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36);
     ctx.textAlign = 'left';
   }
@@ -407,8 +418,28 @@ var Render = (function () {
     ctx.textAlign = 'center';
     ctx.fillText('PAUSED', CANVAS_WIDTH / 2, 30);
     ctx.font = '10px monospace';
+    // Same eligibility check as the WIN/GAMEOVER/LEADERBOARD screens' bottom
+    // text (no shared export for it -- see those for the same duplicated
+    // check) surfaced here too, so a player who dies/quits mid-run finds out
+    // *before* the fact rather than being surprised on the game-over screen.
+    var submittable = !state.bossRush && state.runId != null;
+    ctx.fillText(submittable ? 'Leaderboard: eligible' : 'Leaderboard: NOT eligible', CANVAS_WIDTH / 2, 50);
+    if (!submittable) ctx.fillText('(start a new run online)', CANVAS_WIDTH / 2, 64);
     ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 52);
     ctx.fillText('Press * to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36);
+    ctx.textAlign = 'left';
+  }
+
+  function renderConfirmQuitOverlay(ctx) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('ARE YOU SURE?', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+    ctx.font = '10px monospace';
+    ctx.fillText('Press 1 to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
+    ctx.fillText('Press * to cancel', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
     ctx.textAlign = 'left';
   }
 
@@ -445,7 +476,7 @@ var Render = (function () {
     renderPlayField(ctx, state);
     renderScoreHUD(ctx, state);
 
-    var isPaused = state.mode === 'paused';
+    var isPaused = state.mode === 'paused' || state.mode === 'confirm_quit';
     var buffer = InputEngine.getBuffer();
     var lockedId = InputEngine.getLockedEnemyId();
     if (effectiveMode(state) === 'boss') {
@@ -462,6 +493,7 @@ var Render = (function () {
     if (effectiveMode(state) === 'transition') renderTransitionOverlay(ctx, state);
     if (state.mode === 'win') renderWinOverlay(ctx, state);
     if (state.mode === 'paused') renderPauseOverlay(ctx, state);
+    if (state.mode === 'confirm_quit') renderConfirmQuitOverlay(ctx);
     if (state.mode === 'connecting') renderConnectingOverlay(ctx);
     if (state.mode === 'name_entry') renderNameEntryOverlay(ctx);
     if (state.mode === 'submitting') renderSubmittingOverlay(ctx);

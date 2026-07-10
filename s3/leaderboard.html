@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>T9 Wizard — Leaderboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    /* Same look as the game itself (frontend-v3/css/style.css): black
+       background, white monospace text -- just not canvas-drawn here, since
+       this needs to actually reflow/scale across phone -> tablet -> desktop
+       widths rather than fill one fixed viewport. Font sizes use clamp() for
+       continuous scaling with viewport width, not discrete breakpoints, so
+       the page looks identical at every size -- just progressively bigger. */
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font-family: monospace;
+    }
+    .page {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: clamp(16px, 4vw, 48px) clamp(12px, 3vw, 32px);
+    }
+    h1 {
+      text-align: center;
+      font-size: clamp(16px, 5vw, 40px);
+      margin: 0 0 clamp(16px, 3vw, 32px) 0;
+      letter-spacing: 0.05em;
+    }
+    .status {
+      text-align: center;
+      font-size: clamp(11px, 2.5vw, 20px);
+      color: #aaa;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: clamp(10px, 2.5vw, 22px);
+      padding: clamp(4px, 1vw, 10px) 0;
+      border-bottom: 1px solid #333;
+    }
+    .row .rank {
+      color: #888;
+      width: 3em;
+      flex-shrink: 0;
+    }
+    .row .name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0 clamp(8px, 2vw, 16px);
+    }
+    .row .score {
+      flex-shrink: 0;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>T9 WIZARD — LEADERBOARD</h1>
+    <p class="status" id="status">Loading...</p>
+    <div id="rows"></div>
+  </div>
+
+<script>
+// Same endpoint the game itself uses, just requesting the full 500 instead
+// of the top 10 the in-game screen shows (see ?limit= on leaderboard_route
+// in backend/lambda/t9_wizard/t9_wizard.py).
+const URL_ = 'https://api.t9-wizard.elliscode.com/api/v1/leaderboard?limit=500';
+
+const statusEl = document.getElementById('status');
+const rowsEl = document.getElementById('rows');
+
+async function load() {
+  try {
+    const response = await fetch(URL_);
+    if (response.status < 200 || response.status >= 300) {
+      statusEl.innerText = 'Could not load the leaderboard.';
+      return;
+    }
+    const data = await response.json();
+    const entries = data.leaderboard || [];
+    if (entries.length === 0) {
+      statusEl.innerText = 'No scores yet.';
+      return;
+    }
+    statusEl.remove();
+    entries.forEach(buildRow);
+  } catch {
+    statusEl.innerText = 'Could not load the leaderboard, please refresh.';
+  }
+}
+
+function buildRow(entry, index) {
+  const row = document.createElement('div');
+  row.classList.add('row');
+
+  const rank = document.createElement('span');
+  rank.classList.add('rank');
+  rank.innerText = (index + 1) + '.';
+  row.appendChild(rank);
+
+  const name = document.createElement('span');
+  name.classList.add('name');
+  name.innerText = entry.display_name || '';
+  row.appendChild(name);
+
+  const score = document.createElement('span');
+  score.classList.add('score');
+  score.innerText = Math.floor(entry.score);
+  row.appendChild(score);
+
+  rowsEl.appendChild(row);
+}
+
+load();
+</script>
+</body>
+</html>

@@ -227,12 +227,17 @@ def create_leaderboard_entry(run_id, display_name, score, version):
     # admin approves it. The real name is never written onto this record at
     # all, so there's nothing here that could accidentally leak through
     # get_leaderboard's full-record response before it's been reviewed.
-    placeholder_name = f"Player {secrets.randbelow(10000)}"
+    # A name with a prior decision (see get_name_decision) skips that queue
+    # entirely: previously approved posts the real name immediately;
+    # previously denied still posts (a rejected *name* isn't a reason to
+    # wipe an otherwise-legitimate score) but permanently under the
+    # placeholder, since deny_pending_name never promotes it later.
+    decision = get_name_decision(display_name)
     python_data = {
         "key1": f"leaderboard#v{version}",
         "key2": key2,
         "run_id": run_id,
-        "display_name": placeholder_name,
+        "display_name": display_name if decision is True else f"Player {secrets.randbelow(10000)}",
         # DynamoDB's TypeSerializer rejects native float outright ("use
         # Decimal instead") -- str(score) first avoids binary-float
         # imprecision artifacts that Decimal(score) directly would carry in.
@@ -243,15 +248,17 @@ def create_leaderboard_entry(run_id, display_name, score, version):
         TableName=TABLE_NAME,
         Item=python_obj_to_dynamo_obj(python_data),
     )
-    create_pending_name(run_id, display_name, python_data["key1"], key2, version, score)
+    if decision is None:
+        create_pending_name(run_id, display_name, python_data["key1"], key2, version, score)
     return python_data
 
 
-LEADERBOARD_LIMIT = 10  # matches LEADERBOARD_ROWS in frontend-v3/js/render.js -- no point
-# fetching more than the screen ever actually shows
+LEADERBOARD_LIMIT_DEFAULT = 10  # matches LEADERBOARD_ROWS in frontend-v3/js/render.js --
+# the in-game screen's default, unaffected by callers that ask for more
+LEADERBOARD_LIMIT_MAX = 500  # matches s3/leaderboard.html's "full leaderboard" request
 
 
-def get_leaderboard(version):
+def get_leaderboard(version, limit=LEADERBOARD_LIMIT_DEFAULT):
     # key2 is stored inverted (see create_leaderboard_entry), so ascending
     # key2 order -- the table's native sort, ScanIndexForward's default --
     # already is descending score order. No GSI, no scan, no explicit sort.
@@ -260,7 +267,7 @@ def get_leaderboard(version):
         KeyConditionExpression="#key1 = :key1",
         ExpressionAttributeNames={"#key1": "key1"},
         ExpressionAttributeValues=python_obj_to_dynamo_obj({":key1": f"leaderboard#v{version}"}),
-        Limit=LEADERBOARD_LIMIT,
+        Limit=min(max(1, limit), LEADERBOARD_LIMIT_MAX),
     )
     return [
         {k: decimal_to_number(v) for k, v in dynamo_obj_to_python_obj(item).items()} for item in result.get("Items", [])
@@ -338,22 +345,54 @@ def approve_pending_name(run_id):
         Key=python_obj_to_dynamo_obj({"key1": "unreviewed_name", "key2": run_id}),
         TableName=TABLE_NAME,
     )
+    record_name_decision(pending["real_name"], True)
     return True
 
 
 def deny_pending_name(run_id):
+    # Deliberately does NOT delete the leaderboard entry -- a rejected name
+    # isn't grounds to wipe an otherwise-legitimate score. It just stays
+    # under its placeholder forever (create_leaderboard_entry never promotes
+    # it, since this records a permanent False decision for the name below).
     pending = _get_pending_name(run_id)
     if pending is None:
         return False
     dynamo.delete_item(
-        Key=python_obj_to_dynamo_obj({"key1": pending["leaderboard_key1"], "key2": pending["leaderboard_key2"]}),
-        TableName=TABLE_NAME,
-    )
-    dynamo.delete_item(
         Key=python_obj_to_dynamo_obj({"key1": "unreviewed_name", "key2": run_id}),
         TableName=TABLE_NAME,
     )
+    record_name_decision(pending["real_name"], False)
     return True
+
+
+# A combined whitelist/blacklist of names an admin has already ruled on --
+# case-sensitive and deliberately *not* normalized, e.g. approving
+# "Finn Pulcik" must not silently auto-approve "Finn pUlCiK" (a
+# capitalization trick to sneak a variant past review). validate_display_name
+# (input_validation.py) already strips leading/trailing whitespace before a
+# name ever reaches here, so there's nothing left to normalize.
+def record_name_decision(name, approved):
+    dynamo.put_item(
+        TableName=TABLE_NAME,
+        Item=python_obj_to_dynamo_obj(
+            {
+                "key1": "name_decision",
+                "key2": name,
+                "approved": approved,
+                "decided_at": int(time.time()),
+            }
+        ),
+    )
+
+
+def get_name_decision(name):
+    result = dynamo.get_item(
+        Key=python_obj_to_dynamo_obj({"key1": "name_decision", "key2": name}),
+        TableName=TABLE_NAME,
+    )
+    if "Item" not in result:
+        return None  # never decided before -- goes through moderation as usual
+    return dynamo_obj_to_python_obj(result["Item"])["approved"]
 
 
 # --- Admin login (phone OTP + cookie session) -------------------------------

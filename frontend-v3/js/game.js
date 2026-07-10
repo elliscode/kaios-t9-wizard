@@ -10,7 +10,10 @@ var Game = (function () {
     // genuine win (see enterNameEntry/handleNameSubmitted), LEADERBOARD for
     // GET /leaderboard from the menu (see enterLeaderboard).
     CONNECTING: 'connecting', NAME_ENTRY: 'name_entry', SUBMITTING: 'submitting', SUBMITTED: 'submitted',
-    LEADERBOARD: 'leaderboard'
+    LEADERBOARD: 'leaderboard',
+    // A confirmation step between PAUSED and actually quitting -- see
+    // handleQuitKey -- so an accidental '*' press can't abandon a run.
+    CONFIRM_QUIT: 'confirm_quit'
   };
 
   var ENEMIES_PER_WAVE = 20;
@@ -746,18 +749,27 @@ var Game = (function () {
       returnToMenu();
     } else if (state.mode === STATE.PAUSED) {
       resumeGame();
+    } else if (state.mode === STATE.CONFIRM_QUIT) {
+      // '1' confirms the quit prompted by handleQuitKey.
+      SaveGame.clear();
+      returnToMenu();
     } else if (isActiveSimulationMode()) {
       pauseGame();
     }
   }
 
   // Only available while paused (not a general "abandon run" shortcut mid-
-  // gameplay) -- quitting is a deliberate choice to abandon the run, so the
-  // save is cleared immediately rather than left around to be resumed later.
+  // gameplay) -- quitting is a deliberate choice to abandon the run, gated
+  // behind a confirmation (see handleMenuKey's CONFIRM_QUIT branch for the
+  // actual quit, and STATE.CONFIRM_QUIT's comment) so an accidental '*'
+  // press can't lose one. '*' also cancels back out of that confirmation --
+  // this same handler covers both, since main.js already routes '*' here
+  // unconditionally regardless of which of the two modes is current.
   function handleQuitKey() {
     if (state.mode === STATE.PAUSED) {
-      SaveGame.clear();
-      returnToMenu();
+      state.mode = STATE.CONFIRM_QUIT;
+    } else if (state.mode === STATE.CONFIRM_QUIT) {
+      state.mode = STATE.PAUSED;
     }
   }
 
@@ -767,12 +779,21 @@ var Game = (function () {
     }
   }
 
-  // '0' is otherwise unused across every screen, so the menu repurposes it
-  // for a quick "view leaderboard" shortcut rather than needing a full menu
-  // system just for this one extra option.
+  // '*' from the menu opens the in-game (top-10) leaderboard; '*' again
+  // while already there opens the full (top-500) leaderboard in an actual
+  // browser tab -- same multi-purpose-single-key pattern used elsewhere
+  // (see handleQuitKey), gated on mutually exclusive modes.
   function handleLeaderboardKey() {
     if (state.mode === STATE.MENU) {
       enterLeaderboard();
+    } else if (state.mode === STATE.LEADERBOARD) {
+      try {
+        if (typeof window !== 'undefined' && window.open) {
+          window.open('https://elliscode.com/t9-wizard/leaderboard.html', '_blank');
+        }
+      } catch (e) {
+        // Never let this break the game -- same philosophy as AudioEngine/SaveGame.
+      }
     }
   }
 

@@ -10,6 +10,7 @@ from t9_wizard.utils import (
     delete_game,
     create_leaderboard_entry,
     get_leaderboard,
+    LEADERBOARD_LIMIT_DEFAULT,
     lambda_client,
     REPLAY_LAMBDA_NAME,
     authenticate,
@@ -100,8 +101,18 @@ def leaderboard_route(event, version):
     # Returns each leaderboard item's full raw DynamoDB record as-is (not a
     # curated projection) so new fields/stats can be added later without
     # this endpoint needing to change to expose them. Scoped to this
-    # version's own season -- each season has an independent top-100.
-    return format_response(event=event, http_code=200, body={"leaderboard": get_leaderboard(version)}, log_this=False)
+    # version's own season -- each season has an independent top-N.
+    # ?limit= lets a caller ask for more than the in-game screen's default
+    # (see s3/leaderboard.html, which requests the full top 500) -- clamped
+    # server-side in get_leaderboard, so this never needs to validate it.
+    params = event.get("queryStringParameters") or {}
+    try:
+        limit = int(params["limit"]) if params.get("limit") else LEADERBOARD_LIMIT_DEFAULT
+    except ValueError:
+        limit = LEADERBOARD_LIMIT_DEFAULT
+    return format_response(
+        event=event, http_code=200, body={"leaderboard": get_leaderboard(version, limit)}, log_this=False
+    )
 
 
 # --- Admin: leaderboard name moderation -------------------------------------
