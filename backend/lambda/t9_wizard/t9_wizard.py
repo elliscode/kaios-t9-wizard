@@ -12,8 +12,12 @@ from t9_wizard.utils import (
     get_leaderboard,
     lambda_client,
     REPLAY_LAMBDA_NAME,
+    authenticate,
+    get_pending_names,
+    approve_pending_name,
+    deny_pending_name,
 )
-from t9_wizard.input_validation import validate_schema, SUBMIT_SCHEMA
+from t9_wizard.input_validation import validate_schema, SUBMIT_SCHEMA, MODERATE_NAME_SCHEMA
 
 
 def start_route(event, version):
@@ -98,3 +102,35 @@ def leaderboard_route(event, version):
     # this endpoint needing to change to expose them. Scoped to this
     # version's own season -- each season has an independent top-100.
     return format_response(event=event, http_code=200, body={"leaderboard": get_leaderboard(version)}, log_this=False)
+
+
+# --- Admin: leaderboard name moderation -------------------------------------
+# Not version-scoped like the routes above -- a pending display name isn't
+# tied to one season, and an admin moderating names shouldn't have to check
+# every version separately. See create_pending_name/approve_pending_name/
+# deny_pending_name in utils.py for the actual queue mechanics.
+
+
+@authenticate
+def get_pending_names_route(event, admin_phone, body):
+    return format_response(event=event, http_code=200, body={"pending": get_pending_names()}, log_this=False)
+
+
+@authenticate
+def approve_name_route(event, admin_phone, body):
+    validated = validate_schema(body, MODERATE_NAME_SCHEMA)
+    if validated is None:
+        return format_response(event=event, http_code=400, body="Invalid request body")
+    if not approve_pending_name(validated["run_id"]):
+        return format_response(event=event, http_code=404, body="Pending name not found")
+    return format_response(event=event, http_code=200, body="Name approved")
+
+
+@authenticate
+def deny_name_route(event, admin_phone, body):
+    validated = validate_schema(body, MODERATE_NAME_SCHEMA)
+    if validated is None:
+        return format_response(event=event, http_code=400, body="Invalid request body")
+    if not deny_pending_name(validated["run_id"]):
+        return format_response(event=event, http_code=404, body="Pending name not found")
+    return format_response(event=event, http_code=200, body="Name denied and removed from the leaderboard")

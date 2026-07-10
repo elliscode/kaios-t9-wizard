@@ -9,7 +9,7 @@
 // error, timeout, non-2xx response) resolves to the same { ok, status, body }
 // shape, so every call site in game.js only ever needs a single .then().
 var Api = (function () {
-  var BASE_URL = 'https://f3uonygr5f.execute-api.us-east-1.amazonaws.com/prod/api/v1';
+  var BASE_URL = 'https://api.t9-wizard.elliscode.com/api/v1';
   var TIMEOUT_MS = 8000;
 
   function request(path, options) {

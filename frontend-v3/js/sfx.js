@@ -51,10 +51,15 @@ var SFX = {
     ],
   },
 
-  // A real mistake, or getting hit by an enemy/boss -- same trigger points
-  // as the existing red error-flash (see applyTypingResult/checkCollisions/
-  // checkBossCollision in game.js).
+  // A real typing mistake (see applyTypingResult in game.js) -- also drives
+  // the existing red error-flash.
   ERROR: { wave: "square", freq: 170, duration: 0.2, volume: 0.22, attack: 0.005, release: 0.04 },
+
+  // An enemy or boss sentence reaching the player -- the same buzzer as
+  // ERROR, dropped an octave, so the two are distinguishable by ear: a
+  // mistake reads as a short buzz, getting hit reads as a deeper thud.
+  // See checkCollisions/checkBossCollision in game.js.
+  HIT: { wave: "square", freq: 170 / 2, duration: 0.2, volume: 0.22, attack: 0.005, release: 0.04 },
 
   // Beating the game (all 5 worlds) -- a short two-phrase fanfare: a rising
   // arpeggio held on a first peak, then a faster second run up to a longer

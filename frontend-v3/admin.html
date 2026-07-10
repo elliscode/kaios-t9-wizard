@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>T9 Wizard Admin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: monospace; max-width: 480px; margin: 40px auto; padding: 0 16px; background: #111; color: #eee; }
+    h1 { font-size: 18px; }
+    .login label { display: block; margin: 12px 0; }
+    input { font-family: monospace; padding: 6px; width: 100%; box-sizing: border-box; background: #000; color: #eee; border: 1px solid #555; }
+    button { font-family: monospace; padding: 8px 14px; margin-top: 8px; cursor: pointer; }
+    .pending-name { border: 1px solid #444; border-radius: 4px; padding: 10px 12px; margin: 10px 0; }
+    .pending-name p { margin: 4px 0; }
+    .pending-name .name { font-size: 15px; font-weight: bold; }
+    .pending-name .meta { color: #999; font-size: 12px; }
+    .pending-name .actions { margin-top: 8px; }
+    .approve { background: #1a5; color: #fff; border: none; border-radius: 3px; }
+    .deny { background: #a33; color: #fff; border: none; border-radius: 3px; margin-left: 8px; }
+    #error { color: #f66; }
+  </style>
+</head>
+<body>
+  <h1>T9 Wizard Admin — Leaderboard Name Review</h1>
+  <p id="error"></p>
+
+  <div class="login" id="generate-code" style="display:none;">
+    <form onsubmit="generateCode(event);">
+      <p>Enter the admin phone number to receive a log-in code.</p>
+      <label for="phone-number">Phone Number: <input type="tel" name="phone-number" id="phone-number" placeholder="XXXXXXXXXX"></label>
+      <button>Get Code</button>
+    </form>
+  </div>
+  <div class="login" id="submit-code" style="display:none;">
+    <form onsubmit="submitCode(event);">
+      <p>Enter the one-time code sent by text.</p>
+      <label for="one-time-code">One-time Code: <input type="tel" name="one-time-code" id="one-time-code" placeholder="XXXXXX" autocomplete="off"></label>
+      <button>Log In</button>
+    </form>
+  </div>
+  <div id="pending-names" style="display:none;"></div>
+
+<script>
+// Unversioned -- moderation isn't scoped to one API season (see
+// backend/lambda/lambda_function.py's route()).
+const BASE_URL = 'https://api.t9-wizard.elliscode.com/admin';
+
+const generateCodeDiv = document.getElementById('generate-code');
+const submitCodeDiv = document.getElementById('submit-code');
+const pendingNamesDiv = document.getElementById('pending-names');
+const errorEl = document.getElementById('error');
+const phoneNumber = document.getElementById('phone-number');
+const oneTimeCode = document.getElementById('one-time-code');
+// Distinct key from the blog's own admin page (elliscode-admin-csrf-token)
+// -- both are plausibly open under the same origin, and localStorage is
+// shared per-origin, so reusing that key would cross-contaminate sessions.
+const CSRF_STORAGE_KEY = 't9wizard-admin-csrf-token';
+let csrfToken = undefined;
+
+function loadCsrfToken() {
+  const stored = localStorage.getItem(CSRF_STORAGE_KEY);
+  if (/^[a-zA-Z0-9]{32}$/.test(stored)) csrfToken = stored;
+}
+
+function displayError(message) {
+  errorEl.innerText = message || '';
+}
+
+async function changeUiBasedOnLoginState() {
+  try {
+    let response = await fetch(`${BASE_URL}/logged-in-check`, {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ csrf: csrfToken })
+    });
+    if (response.status >= 200 && response.status < 300) {
+      showPendingNames();
+      return;
+    }
+  } catch {
+    // Network-level failure (offline, CORS, etc) -- fall through to the
+    // login form below rather than leaving the page blank.
+  }
+  generateCodeDiv.style.display = 'flex';
+}
+
+async function generateCode(event) {
+  event.preventDefault();
+  try {
+    let response = await fetch(`${BASE_URL}/otp`, {
+      method: 'POST',
+      body: JSON.stringify({ phone: phoneNumber.value })
+    });
+    if (response.status >= 200 && response.status < 300) {
+      displayError('');
+      generateCodeDiv.style.display = 'none';
+      submitCodeDiv.style.display = 'flex';
+      return;
+    }
+    const data = await response.json();
+    displayError(data.message);
+  } catch {
+    displayError('Error requesting a code, please check the phone number.');
+  }
+}
+
+async function submitCode(event) {
+  event.preventDefault();
+  try {
+    let response = await fetch(`${BASE_URL}/login`, {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ phone: phoneNumber.value, otp: oneTimeCode.value })
+    });
+    if (response.status >= 200 && response.status < 300) {
+      csrfToken = response.headers.get('x-csrf-token');
+      localStorage.setItem(CSRF_STORAGE_KEY, csrfToken);
+      displayError('');
+      submitCodeDiv.style.display = 'none';
+      showPendingNames();
+      return;
+    }
+    const data = await response.json();
+    displayError(data.message);
+  } catch {
+    displayError('Error logging in, please try again.');
+  }
+}
+
+async function showPendingNames() {
+  while (pendingNamesDiv.firstElementChild) pendingNamesDiv.firstElementChild.remove();
+  pendingNamesDiv.style.display = 'block';
+  try {
+    let response = await fetch(`${BASE_URL}/get-pending-names`, {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ csrf: csrfToken })
+    });
+    if (response.status < 200 || response.status >= 300) {
+      displayError('Could not load pending names.');
+      return;
+    }
+    const data = await response.json();
+    const pending = data.pending || [];
+    if (pending.length === 0) {
+      const el = document.createElement('p');
+      el.innerText = 'No names awaiting review.';
+      pendingNamesDiv.appendChild(el);
+      return;
+    }
+    pending.forEach(buildPendingNameRow);
+  } catch {
+    displayError('Error loading pending names, please refresh.');
+  }
+}
+
+function buildPendingNameRow(entry) {
+  // entry.key2 is the DynamoDB sort key on the pending-name record, which
+  // is the run_id itself (see create_pending_name in backend/lambda/
+  // t9_wizard/utils.py) -- not a separate field, so this is what
+  // approve/deny actually need to send back.
+  const div = document.createElement('div');
+  div.classList.add('pending-name');
+
+  const name = document.createElement('p');
+  name.classList.add('name');
+  name.innerText = entry.real_name;
+  div.appendChild(name);
+
+  const meta = document.createElement('p');
+  meta.classList.add('meta');
+  const when = new Date(entry.submitted_at * 1000).toLocaleString();
+  meta.innerText = `Score: ${entry.score}  |  v${entry.version}  |  ${when}`;
+  div.appendChild(meta);
+
+  const actions = document.createElement('div');
+  actions.classList.add('actions');
+
+  const approveBtn = document.createElement('button');
+  approveBtn.innerText = 'Approve';
+  approveBtn.classList.add('approve');
+  approveBtn.setAttribute('runId', entry.key2);
+  approveBtn.addEventListener('click', approveName);
+  actions.appendChild(approveBtn);
+
+  const denyBtn = document.createElement('button');
+  denyBtn.innerText = 'Deny';
+  denyBtn.classList.add('deny');
+  denyBtn.setAttribute('runId', entry.key2);
+  denyBtn.addEventListener('click', denyName);
+  actions.appendChild(denyBtn);
+
+  div.appendChild(actions);
+  pendingNamesDiv.appendChild(div);
+}
+
+async function approveName(event) {
+  const runId = event.target.getAttribute('runId');
+  try {
+    let response = await fetch(`${BASE_URL}/approve-name`, {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ csrf: csrfToken, run_id: runId })
+    });
+    if (response.status >= 200 && response.status < 300) {
+      event.target.closest('.pending-name').remove();
+      return;
+    }
+  } catch {}
+  displayError('Error approving name, please try again.');
+}
+
+async function denyName(event) {
+  const runId = event.target.getAttribute('runId');
+  try {
+    let response = await fetch(`${BASE_URL}/deny-name`, {
+      method: 'POST',
+      credentials: 'include',
+      body: JSON.stringify({ csrf: csrfToken, run_id: runId })
+    });
+    if (response.status >= 200 && response.status < 300) {
+      event.target.closest('.pending-name').remove();
+      return;
+    }
+  } catch {}
+  displayError('Error denying name, please try again.');
+}
+
+loadCsrfToken();
+changeUiBasedOnLoginState();
+</script>
+</body>
+</html>

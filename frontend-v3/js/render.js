@@ -383,7 +383,7 @@ var Render = (function () {
       var rowHeight = 16;
       var startY = 48;
       rows.forEach(function (entry, i) {
-        var name = String(entry.display_name || '').slice(0, 12);
+        var name = String(entry.display_name || '').slice(0, 20);
         var line = (i + 1) + '. ' + name;
         ctx.fillText(line, 16, startY + i * rowHeight);
         ctx.textAlign = 'right';

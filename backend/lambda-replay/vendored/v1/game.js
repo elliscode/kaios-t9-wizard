@@ -234,7 +234,7 @@ var Game = (function () {
         state.wordCombo = 0;
         state.scoreMultiplier = 1;
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
-        if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
+        if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.HIT);
         // Only clear the typing buffer if THIS enemy was the locked one --
         // otherwise the player is mid-typing a different enemy and
         // shouldn't lose that progress just because some other one escaped.
@@ -529,7 +529,7 @@ var Game = (function () {
       state.wordCombo = 0;
       state.scoreMultiplier = 1;
       state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
-      if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
+      if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.HIT);
       if (state.lives <= 0) {
         state.mode = STATE.GAMEOVER;
         state.boss = null;

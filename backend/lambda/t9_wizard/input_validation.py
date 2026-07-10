@@ -105,3 +105,12 @@ SUBMIT_SCHEMA = {
         },
     ],
 }
+
+# Admin moderation actions (see approve_name_route/deny_name_route) -- both
+# just need to identify which pending queue entry to act on.
+MODERATE_NAME_SCHEMA = {
+    "type": dict,
+    "fields": [
+        {"type": validate_id, "name": "run_id"},
+    ],
+}

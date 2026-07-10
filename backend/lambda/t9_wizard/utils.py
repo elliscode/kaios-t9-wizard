@@ -19,6 +19,20 @@ REPLAY_LAMBDA_NAME = os.environ.get("REPLAY_LAMBDA_NAME")
 # redeploy, no code change. See extract_version and the replay Lambda's own
 # version-keyed vendored/v<N>/ snapshots (backend/lambda-replay/index.js).
 KNOWN_VERSIONS = {int(v) for v in os.environ.get("KNOWN_VERSIONS", "").split(",") if v}
+# Admin moderation login (see login_route/otp_route) -- a single hardcoded
+# phone number, not a general user system, since there's only ever one
+# legitimate admin. SMS is sent through an already-deployed, project-agnostic
+# SQS-triggered Twilio Lambda (github.com-style sibling project
+# aws-lambda-twilio) -- this queue URL points at that *same* existing queue,
+# no new queue/consumer needed.
+ADMIN_PHONE = os.environ.get("ADMIN_PHONE")
+SMS_SQS_QUEUE_URL = os.environ.get("SMS_SQS_QUEUE_URL")
+ADMIN_COOKIE_NAME = "t9wizard-admin-token"
+# Must match the custom domain admin.html actually calls (api.t9-wizard.
+# elliscode.com) -- a Set-Cookie response can only set a Domain that
+# domain-matches the host that sent it, so this has to track wherever the
+# admin API is actually served from, not just any elliscode.com subdomain.
+ADMIN_COOKIE_DOMAIN = ".t9-wizard.elliscode.com"
 
 digits = "0123456789"
 lowercase_letters = "abcdefghijklmnopqrstuvwxyz"
@@ -30,6 +44,7 @@ RUN_EXPIRATION_SECONDS = 7 * 24 * 60 * 60
 
 dynamo = boto3.client("dynamodb")
 lambda_client = boto3.client("lambda")
+sqs = boto3.client("sqs")
 
 
 def has_invalid_domain(event):
@@ -78,6 +93,10 @@ def format_response(event, http_code, body, headers=None, log_this=True):
         "Access-Control-Allow-Origin": domain_name,
         "Access-Control-Allow-Methods": "GET, POST",
         "Access-Control-Allow-Credentials": "true",
+        # Without this, admin.html's fetch() can't read the x-csrf-token
+        # header off the login response -- browsers hide non-simple response
+        # headers cross-origin unless the server explicitly exposes them.
+        "Access-Control-Expose-Headers": "x-csrf-token",
     }
     if headers is not None:
         all_headers.update(headers)
@@ -200,11 +219,20 @@ def create_leaderboard_entry(run_id, display_name, score, version):
     # scores happen to be identical.
     scaled_score = round(score * LEADERBOARD_SCORE_SCALE)
     key2 = f"{LEADERBOARD_KEY2_OFFSET - scaled_score:013d}#{run_id}"
+    # The score goes live immediately, but display_name is free-text and
+    # public -- rather than delaying the whole entry behind manual review,
+    # it posts under an anonymous placeholder right away and the *real*
+    # submitted name sits in a separate moderation queue (see
+    # create_pending_name/approve_pending_name/deny_pending_name) until an
+    # admin approves it. The real name is never written onto this record at
+    # all, so there's nothing here that could accidentally leak through
+    # get_leaderboard's full-record response before it's been reviewed.
+    placeholder_name = f"Player {secrets.randbelow(10000)}"
     python_data = {
         "key1": f"leaderboard#v{version}",
         "key2": key2,
         "run_id": run_id,
-        "display_name": display_name,
+        "display_name": placeholder_name,
         # DynamoDB's TypeSerializer rejects native float outright ("use
         # Decimal instead") -- str(score) first avoids binary-float
         # imprecision artifacts that Decimal(score) directly would carry in.
@@ -215,6 +243,7 @@ def create_leaderboard_entry(run_id, display_name, score, version):
         TableName=TABLE_NAME,
         Item=python_obj_to_dynamo_obj(python_data),
     )
+    create_pending_name(run_id, display_name, python_data["key1"], key2, version, score)
     return python_data
 
 
@@ -236,3 +265,295 @@ def get_leaderboard(version):
     return [
         {k: decimal_to_number(v) for k, v in dynamo_obj_to_python_obj(item).items()} for item in result.get("Items", [])
     ]
+
+
+# --- Leaderboard name moderation queue -------------------------------------
+# A separate record type (key1="unreviewed_name"), not a flag mutated on the
+# public leaderboard item -- mirrors the same "unreviewed_X -> approve/deny"
+# shape used for blog comment moderation elsewhere (a sibling project, not
+# this repo). Keeping it a separate record means get_pending_names is a
+# single Query on one partition key, never a full-table Scan, and it's
+# naturally cross-version (moderation isn't scoped to one season the way
+# leaderboard entries are).
+def create_pending_name(run_id, real_name, leaderboard_key1, leaderboard_key2, version, score):
+    python_data = {
+        "key1": "unreviewed_name",
+        "key2": run_id,
+        "real_name": real_name,
+        # The exact composite key of the public entry this pairs with, so
+        # approve/deny can address it directly without recomputing the
+        # inverted-score key2 encoding.
+        "leaderboard_key1": leaderboard_key1,
+        "leaderboard_key2": leaderboard_key2,
+        "version": version,
+        # Duplicated from the leaderboard entry purely so the admin UI can
+        # show it during review without a second lookup -- not the source of
+        # truth (the leaderboard entry is), never written back anywhere.
+        "score": Decimal(str(score)),
+        "submitted_at": int(time.time()),
+    }
+    dynamo.put_item(
+        TableName=TABLE_NAME,
+        Item=python_obj_to_dynamo_obj(python_data),
+    )
+    return python_data
+
+
+def get_pending_names():
+    result = dynamo.query(
+        TableName=TABLE_NAME,
+        KeyConditionExpression="#key1 = :key1",
+        ExpressionAttributeNames={"#key1": "key1"},
+        ExpressionAttributeValues=python_obj_to_dynamo_obj({":key1": "unreviewed_name"}),
+        ScanIndexForward=True,  # oldest first
+    )
+    # decimal_to_number: same reason as get_leaderboard -- score comes back
+    # as Decimal, which json.dumps can't encode directly.
+    return [
+        {k: decimal_to_number(v) for k, v in dynamo_obj_to_python_obj(item).items()} for item in result.get("Items", [])
+    ]
+
+
+def _get_pending_name(run_id):
+    result = dynamo.get_item(
+        Key=python_obj_to_dynamo_obj({"key1": "unreviewed_name", "key2": run_id}),
+        TableName=TABLE_NAME,
+    )
+    if "Item" not in result:
+        return None
+    return dynamo_obj_to_python_obj(result["Item"])
+
+
+def approve_pending_name(run_id):
+    pending = _get_pending_name(run_id)
+    if pending is None:
+        return False
+    dynamo.update_item(
+        TableName=TABLE_NAME,
+        Key=python_obj_to_dynamo_obj({"key1": pending["leaderboard_key1"], "key2": pending["leaderboard_key2"]}),
+        UpdateExpression="SET display_name = :name",
+        ExpressionAttributeValues=python_obj_to_dynamo_obj({":name": pending["real_name"]}),
+    )
+    dynamo.delete_item(
+        Key=python_obj_to_dynamo_obj({"key1": "unreviewed_name", "key2": run_id}),
+        TableName=TABLE_NAME,
+    )
+    return True
+
+
+def deny_pending_name(run_id):
+    pending = _get_pending_name(run_id)
+    if pending is None:
+        return False
+    dynamo.delete_item(
+        Key=python_obj_to_dynamo_obj({"key1": pending["leaderboard_key1"], "key2": pending["leaderboard_key2"]}),
+        TableName=TABLE_NAME,
+    )
+    dynamo.delete_item(
+        Key=python_obj_to_dynamo_obj({"key1": "unreviewed_name", "key2": run_id}),
+        TableName=TABLE_NAME,
+    )
+    return True
+
+
+# --- Admin login (phone OTP + cookie session) -------------------------------
+# Ported from a sibling project's blog-comment-admin login (not part of this
+# repo) -- same OTP/session/CSRF mechanics, adapted for a single hardcoded
+# admin rather than a general registered-user system: there's only ever one
+# legitimate admin, so the identity check is a direct equality test instead
+# of a DynamoDB user lookup, and no "user" records are ever written at all.
+def get_admin_identity(phone):
+    return phone if phone == ADMIN_PHONE else None
+
+
+def get_cookies(event):
+    # HTTP API (v2) puts cookies in a native top-level array; REST API (v1)
+    # doesn't, and the Cookie header has to be split by hand instead. Handles
+    # either shape rather than assuming one.
+    if "cookies" in event:
+        return event["cookies"]
+    header = (event.get("headers") or {}).get("cookie") or (event.get("headers") or {}).get("Cookie")
+    if not header:
+        return []
+    return [c.strip() for c in header.split(";")]
+
+
+def find_cookie(cookies):
+    for cookie in cookies:
+        parts = cookie.split("=")
+        cookie_name = parts[0].strip(" ;")
+        if cookie_name == ADMIN_COOKIE_NAME:
+            return parts[1].strip(" ;")
+    return None
+
+
+def create_otp(phone, otp_value):
+    python_data = {
+        "key1": "otp",
+        "key2": phone,
+        "otp": otp_value,
+        "expiration": int(time.time()) + (5 * 60),
+        "last_failure": 0,
+    }
+    dynamo.put_item(TableName=TABLE_NAME, Item=python_obj_to_dynamo_obj(python_data))
+    return python_data
+
+
+def set_otp(phone, python_data):
+    dynamo.put_item(TableName=TABLE_NAME, Item=python_obj_to_dynamo_obj(python_data))
+    return python_data
+
+
+def get_otp(phone):
+    result = dynamo.get_item(
+        Key=python_obj_to_dynamo_obj({"key1": "otp", "key2": phone}),
+        TableName=TABLE_NAME,
+    )
+    if "Item" not in result:
+        return None
+    return dynamo_obj_to_python_obj(result["Item"])
+
+
+def delete_otp(phone):
+    dynamo.delete_item(
+        Key=python_obj_to_dynamo_obj({"key1": "otp", "key2": phone}),
+        TableName=TABLE_NAME,
+    )
+
+
+def create_token(phone):
+    python_data = {
+        "key1": "token",
+        "key2": create_id(32),
+        "csrf": create_id(32),
+        "user": phone,
+        "expiration": int(time.time()) + (4 * 30 * 24 * 60 * 60),
+    }
+    dynamo.put_item(TableName=TABLE_NAME, Item=python_obj_to_dynamo_obj(python_data))
+    return python_data
+
+
+def get_token(token_string):
+    result = dynamo.get_item(
+        Key=python_obj_to_dynamo_obj({"key1": "token", "key2": token_string}),
+        TableName=TABLE_NAME,
+    )
+    if "Item" not in result:
+        return None
+    return dynamo_obj_to_python_obj(result["Item"])
+
+
+def delete_token(token_id):
+    dynamo.delete_item(
+        Key=python_obj_to_dynamo_obj({"key1": "token", "key2": token_id}),
+        TableName=TABLE_NAME,
+    )
+
+
+def get_active_tokens(phone):
+    result = dynamo.get_item(
+        Key=python_obj_to_dynamo_obj({"key1": "active_tokens", "key2": phone}),
+        TableName=TABLE_NAME,
+    )
+    if "Item" in result:
+        active_tokens = dynamo_obj_to_python_obj(result["Item"])
+        active_tokens["tokens"] = {k: v for k, v in active_tokens["tokens"].items() if v > int(time.time())}
+    else:
+        active_tokens = {"key1": "active_tokens", "key2": phone, "tokens": {}}
+    return active_tokens
+
+
+def track_token(token_data):
+    active_tokens = get_active_tokens(token_data["user"])
+    active_tokens["tokens"][token_data["key2"]] = token_data["expiration"]
+    dynamo.put_item(TableName=TABLE_NAME, Item=python_obj_to_dynamo_obj(active_tokens))
+
+
+# Wraps an admin-only route: validates the session cookie + CSRF token
+# before calling through. The wrapped function receives (event, admin_phone,
+# body) -- admin_phone is always ADMIN_PHONE here (the only identity that
+# can ever reach this point), passed through rather than hardcoded again so
+# call sites don't need to import ADMIN_PHONE separately.
+def authenticate(func):
+    def wrapper_func(*args, **kwargs):
+        event = args[0]
+        cookie = find_cookie(get_cookies(event))
+        body = parse_body(event.get("body"))
+        csrf_token = body.get("csrf")
+        token_data = get_token(cookie) if cookie else None
+        if token_data is None or token_data["expiration"] < int(time.time()):
+            return format_response(event=event, http_code=403, body="Your session has expired, please log in")
+        active_tokens = get_active_tokens(token_data["user"])
+        if token_data["key2"] not in active_tokens["tokens"]:
+            return format_response(event=event, http_code=403, body="Your session has expired, please log in")
+        if csrf_token is None or token_data["csrf"] != csrf_token:
+            # token_data["key2"] is this session's own id -- not key1, which
+            # is just the literal record-type string "token" and would
+            # delete the wrong (nonexistent) item.
+            delete_token(token_data["key2"])
+            return format_response(event=event, http_code=403, body="Your CSRF token is invalid, please log in again")
+        return func(event, token_data["user"], body)
+
+    return wrapper_func
+
+
+def otp_route(event):
+    body = parse_body(event.get("body"))
+    phone = str(body.get("phone", ""))
+    if not re.match(r"^\d{10}$", phone):
+        return format_response(event=event, http_code=400, body="Invalid phone number, must be a 10 digit US number")
+
+    if get_admin_identity(phone) is None:
+        return format_response(event=event, http_code=401, body="You are not permitted to log in")
+
+    otp_data = get_otp(phone)
+    if otp_data is None or otp_data["expiration"] < int(time.time()):
+        otp_value = "".join(secrets.choice(digits) for _ in range(6))
+        otp_data = create_otp(phone, otp_value)
+        message = {
+            "phone": f"+1{phone}",
+            "message": f"{otp_data['otp']} is your T9 Wizard admin one-time passcode",
+        }
+        sqs.send_message(QueueUrl=SMS_SQS_QUEUE_URL, MessageBody=json.dumps(message))
+        return format_response(event=event, http_code=200, body="OTP sent")
+    return format_response(event=event, http_code=200, body="OTP already sent, please check your messages")
+
+
+def login_route(event):
+    body = parse_body(event.get("body"))
+    phone = str(body.get("phone", ""))
+    submitted_otp = body.get("otp")
+
+    if get_admin_identity(phone) is None:
+        return format_response(event=event, http_code=401, body="You are not permitted to log in")
+
+    otp_data = get_otp(phone)
+    if otp_data is None or otp_data["expiration"] < int(time.time()):
+        return format_response(event=event, http_code=400, body="OTP expired, please try again")
+    diff = otp_data["last_failure"] + 30 - int(time.time())
+    if diff > 0:
+        return format_response(event=event, http_code=403, body=f"Please wait {diff} seconds before trying again")
+    if submitted_otp != otp_data["otp"]:
+        otp_data["last_failure"] = int(time.time())
+        set_otp(phone, otp_data)
+        return format_response(event=event, http_code=403, body="Incorrect OTP, please try again")
+
+    delete_otp(phone)
+    token_data = create_token(phone)
+    track_token(token_data)
+    date_string = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(time.time() + (4 * 30 * 24 * 60 * 60)))
+    return format_response(
+        event=event,
+        http_code=200,
+        body="successfully logged in",
+        headers={
+            "x-csrf-token": token_data["csrf"],
+            "Set-Cookie": f"{ADMIN_COOKIE_NAME}={token_data['key2']}; Domain={ADMIN_COOKIE_DOMAIN}; "
+            f"Expires={date_string}; Secure; HttpOnly",
+        },
+    )
+
+
+@authenticate
+def logged_in_check_route(event, admin_phone, body):
+    return format_response(event=event, http_code=200, body="You are logged in")
