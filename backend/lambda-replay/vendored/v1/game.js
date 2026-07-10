@@ -13,7 +13,12 @@ var Game = (function () {
     LEADERBOARD: 'leaderboard',
     // A confirmation step between PAUSED and actually quitting -- see
     // handleQuitKey -- so an accidental '*' press can't abandon a run.
-    CONFIRM_QUIT: 'confirm_quit'
+    CONFIRM_QUIT: 'confirm_quit',
+    // Gated interstitial ad -- see showGatedAd -- entered from GAMEOVER or
+    // CONFIRM_QUIT, never from WIN. Sim is already stopped in both source
+    // states, so nothing needs to "unwrap" through this mode the way
+    // PAUSED/CONFIRM_QUIT unwrap to the frozen sim underneath.
+    AD: 'ad'
   };
 
   var ENEMIES_PER_WAVE = 20;
@@ -732,27 +737,60 @@ var Game = (function () {
     return !state.bossRush && state.runId != null;
   }
 
+  // Shown only on losing (GAMEOVER) or confirming a quit -- never on WIN --
+  // as a "punishment" for not finishing the run. Enters STATE.AD, asks
+  // AdsEngine to display whatever it has (a preloaded ad, a freshly
+  // requested one, or nothing at all if unavailable/disallowed), then runs
+  // onDone. The thisState guard matches enterLeaderboard/enterNameEntry's
+  // existing pattern -- if something else already moved state on (e.g. the
+  // player somehow gets back to the menu another way while the ad's async
+  // callback is still pending), onDone must not fire against a stale state.
+  function showGatedAd(onDone) {
+    state.mode = STATE.AD;
+    if (typeof AdsEngine === 'undefined') {
+      onDone();
+      return;
+    }
+    var thisState = state;
+    AdsEngine.showAd(function () {
+      if (state !== thisState) return;
+      onDone();
+    });
+  }
+
   function handleMenuKey() {
     if (state.mode === STATE.MENU) {
       resetGame();
-    } else if (state.mode === STATE.WIN || state.mode === STATE.GAMEOVER) {
-      // A game over is a legitimate, submittable result too (see
-      // submit_route) -- not just a real win. Same gate either way: no
-      // run_id (offline start, or a boss-rush practice run) just returns to
-      // the menu instead.
+    } else if (state.mode === STATE.WIN) {
+      // A win never shows an ad -- only losing/quitting does (see
+      // showGatedAd).
       if (isRunSubmittable()) {
         enterNameEntry();
       } else {
         returnToMenu();
       }
+    } else if (state.mode === STATE.GAMEOVER) {
+      showGatedAd(function () {
+        // A game over is a legitimate, submittable result too (see
+        // submit_route) -- not just a real win. Same gate either way: no
+        // run_id (offline start, or a boss-rush practice run) just returns
+        // to the menu instead.
+        if (isRunSubmittable()) {
+          enterNameEntry();
+        } else {
+          returnToMenu();
+        }
+      });
     } else if (state.mode === STATE.SUBMITTED || state.mode === STATE.LEADERBOARD) {
       returnToMenu();
     } else if (state.mode === STATE.PAUSED) {
       resumeGame();
     } else if (state.mode === STATE.CONFIRM_QUIT) {
       // '1' confirms the quit prompted by handleQuitKey.
-      SaveGame.clear();
-      returnToMenu();
+      showGatedAd(function () {
+        SaveGame.clear();
+        returnToMenu();
+      });
     } else if (isActiveSimulationMode()) {
       pauseGame();
     }

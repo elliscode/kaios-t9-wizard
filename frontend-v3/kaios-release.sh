@@ -5,5 +5,4 @@ zip -r t9wizard-${TIMESTAMP}.zip . \
   -x "*.md" \
   -x "*release.sh" \
   -x "final-menu.png" \
-  -x "final-playing.png" \
-  -x "final-transition.png"
+  -x "assets/banner.png"

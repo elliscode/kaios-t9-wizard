@@ -3,6 +3,11 @@
     var canvas = document.getElementById('game');
 
     Game.init(canvas);
+    // Warms up an ad ahead of time so it's ready the moment a game-over or
+    // quit-confirm actually needs one -- the real display happens later, via
+    // Game's showGatedAd (see js/ads.js and js/game.js). Safely no-ops
+    // outside the allowed test host (e.g. testing in a desktop browser).
+    if (typeof AdsEngine !== 'undefined') AdsEngine.preloadAd();
 
     document.addEventListener('keydown', function (e) {
       // While the real name-entry <input> is focused, every keystroke must

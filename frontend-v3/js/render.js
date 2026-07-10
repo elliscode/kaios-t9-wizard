@@ -286,8 +286,12 @@ var Render = (function () {
     var wiw = Game.waveInWorld(state.wave);
     ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
+    // A game over always shows an ad before continuing -- win never does
+    // (see renderWinOverlay/handleMenuKey) -- so the second line differs
+    // depending on what happens after the ad closes.
     var submittable = !state.bossRush && state.runId != null;
-    ctx.fillText(submittable ? 'Press 1 to submit score' : 'Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    ctx.fillText(submittable ? 'submit your score' : 'return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 46);
     ctx.textAlign = 'left';
   }
 
@@ -316,6 +320,21 @@ var Render = (function () {
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('Connecting...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+    ctx.textAlign = 'left';
+  }
+
+  // Shown for whatever brief gap exists before/during a gated ad (see
+  // showGatedAd in game.js) -- the real ad, when one actually plays, is its
+  // own full-screen SDK-provided UI on top of this; most of the time (no ad
+  // available/allowed) this is only visible for an instant before the next
+  // real screen takes over.
+  function renderAdOverlay(ctx) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading...', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.textAlign = 'left';
   }
 
@@ -438,8 +457,9 @@ var Render = (function () {
     ctx.textAlign = 'center';
     ctx.fillText('ARE YOU SURE?', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
     ctx.font = '10px monospace';
-    ctx.fillText('Press 1 to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
-    ctx.fillText('Press * to cancel', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
+    ctx.fillText('return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
+    ctx.fillText('Press * to cancel', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 36);
     ctx.textAlign = 'left';
   }
 
@@ -495,6 +515,7 @@ var Render = (function () {
     if (state.mode === 'paused') renderPauseOverlay(ctx, state);
     if (state.mode === 'confirm_quit') renderConfirmQuitOverlay(ctx);
     if (state.mode === 'connecting') renderConnectingOverlay(ctx);
+    if (state.mode === 'ad') renderAdOverlay(ctx);
     if (state.mode === 'name_entry') renderNameEntryOverlay(ctx);
     if (state.mode === 'submitting') renderSubmittingOverlay(ctx);
     if (state.mode === 'submitted') renderSubmittedOverlay(ctx, state);

@@ -175,3 +175,23 @@ Not yet implemented: visual theme/sprites (enemies, powerups, boss, and player a
 - [ ] Highest Multiplier Ever Reached
 - [ ] Longest Letter Combo Ever
 - [ ] Longest Perfect Word Streak Ever
+
+# KaiOS Store Submission Fields
+
+## Known Issues
+
+No known issues at this time.
+
+## Simple Test Report
+
+1. Launch the app. Confirm the main menu appears with the title "T9 WIZARD" and the options "Press 1 to start" / "Press * for leaderboard".
+2. Press **1**. Confirm a brief full-screen "WORLD 1 / WAVE 1" announcement appears, followed by gameplay starting — colored blocks, each carrying a word, begin falling from the top of the screen.
+3. Using the numeric keypad, type the T9 digit sequence for a falling word's letters (e.g. 2=ABC, 3=DEF, 4=GHI, 5=JKL, 6=MNO, 7=PQRS, 8=TUV, 9=WXYZ). Confirm the block is destroyed once the full word is typed, and the score in the top-left corner increases.
+4. Allow one word to fall all the way to the bottom without typing it. Confirm one life is lost (shown as a red square in the bottom-left HUD disappearing) and the screen briefly flashes red.
+5. Press **1** during active gameplay. Confirm the game pauses (a "PAUSED" overlay appears, falling blocks freeze). Press **1** again and confirm gameplay resumes from where it left off.
+6. Continue playing (allowing words to fall through, if desired, to end the run quickly) until all lives are lost. Confirm a "GAME OVER" screen appears showing the final score and the world/wave reached.
+7. Press **1** from the Game Over screen. Confirm you see an ad.
+8. Enter your name in the leaderboard, you rname wil lnot appear immediately as it requires manual approval to avoid bad words.
+9. Press 1 and Confirm the app returns to the main menu.
+10. From the main menu, press **\*** . Confirm a leaderboard screen loads (showing either a list of scores or a "No scores yet" / loading message, depending on network connectivity) — this should never crash the app.
+11. From the leaderboard screen, press **1** to return to the main menu.
