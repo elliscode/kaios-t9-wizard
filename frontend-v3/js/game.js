@@ -29,6 +29,14 @@ var Game = (function () {
   // and a Python Lambda, so keep these two in sync by hand if either changes.
   var RUN_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000;
   var MIN_SUBMITTABLE_SCORE = 1000;
+  // Caps how many entries state.currentChunk ever holds before it's flushed
+  // to its own SaveGame storage key and reset -- keeps every hot-path
+  // SaveGame.save() call's JSON.stringify cost flat for the whole run,
+  // instead of scaling with total keystrokes so far (which got noticeably
+  // choppy on the SUCCESS chirp late in a run before this existed). Tune
+  // freely; not tied to any world/wave boundary on purpose (a per-world
+  // chunk could still grow arbitrarily large on a world with long words).
+  var INPUT_LOG_CHUNK_SIZE = 250;
   var AUTO_PAUSE_THRESHOLD_MS = 500; // a frame gap this large means the tab was backgrounded/suspended
   // Fixed simulation step (~30 ticks/sec) -- decouples game logic from render
   // framerate (which still runs at requestAnimationFrame's native rate) so a
@@ -132,7 +140,8 @@ var Game = (function () {
       simAccumulator: 0,
       tickCount: 0,
       seed: null,
-      inputLog: null,
+      currentChunk: null,
+      completedChunks: null,
       runId: null,
       runStartedAt: null,
       submitResult: null,
@@ -660,7 +669,8 @@ var Game = (function () {
     // since-replaced state object if that ever stops being true.
     var thisRun = state;
     state.mode = STATE.CONNECTING;
-    state.inputLog = [];
+    state.currentChunk = [];
+    state.completedChunks = [];
     if (typeof Api === 'undefined') {
       thisRun.seed = Math.floor(Math.random() * 0x7fffffff);
       Rng.seed(thisRun.seed);
@@ -697,8 +707,9 @@ var Game = (function () {
     state.bossRush = true;
     state.wave = WAVES_PER_WORLD;
     // Still seeded (so its randomness behaves identically to a real run),
-    // but state.seed/inputLog are deliberately left null -- boss rush never
-    // counts toward the leaderboard, so recording it would be pure overhead.
+    // but state.seed/currentChunk/completedChunks are deliberately left null
+    // -- boss rush never counts toward the leaderboard, so recording it
+    // would be pure overhead.
     Rng.seed(Math.floor(Math.random() * 0x7fffffff));
     InputEngine.reset();
     enterTransition(true);
@@ -885,6 +896,15 @@ var Game = (function () {
   // actually scored (see submit_route/backend/lambda-replay) -- this just
   // packages up exactly what replayRun itself would need to reproduce the
   // run and hands it over.
+  // Reassembles the full, flat input log from the chunked storage (see
+  // INPUT_LOG_CHUNK_SIZE) -- only ever called here, at submit time, a rare
+  // non-hot-path event where the cost of concatenating everything back
+  // together is a total non-issue.
+  function fullInputLog() {
+    var chunks = (state.completedChunks || []).concat([state.currentChunk || []]);
+    return chunks.reduce(function (acc, chunk) { return acc.concat(chunk); }, []);
+  }
+
   function handleNameSubmitted(name) {
     state.mode = STATE.SUBMITTING;
     // Hide (and thus deactivate) the real <input> immediately, not once the
@@ -903,7 +923,7 @@ var Game = (function () {
       tick_count: state.tickCount,
       canvas_width: Layout.CANVAS_WIDTH,
       canvas_height: Layout.CANVAS_HEIGHT,
-      input_log: state.inputLog
+      input_log: fullInputLog()
     }).then(function (result) {
       if (state !== thisState) return;
       if (result.ok && result.body && result.body.score != null) {
@@ -977,7 +997,19 @@ var Game = (function () {
     // ever calls update() on whole TICK_MS boundaries), so a keypress always
     // lands against "state as of the last completed tick" -- replaying the
     // same key at the same tick count reproduces the exact same outcome.
-    if (state.inputLog) state.inputLog.push({ tick: state.tickCount, key: digit });
+    if (state.currentChunk) {
+      state.currentChunk.push({ tick: state.tickCount, key: digit });
+      // Flushed to its own SaveGame storage key and reset once it hits
+      // INPUT_LOG_CHUNK_SIZE -- keeps the hot-path SaveGame.save() call
+      // (see checkCollisions/handleKill/collectPowerup/boss hit-kill) from
+      // ever having to serialize more than a fixed, constant amount of
+      // input-log data, regardless of how far into the run this is.
+      if (state.currentChunk.length >= INPUT_LOG_CHUNK_SIZE) {
+        state.completedChunks.push(state.currentChunk);
+        if (typeof SaveGame !== 'undefined') SaveGame.saveLogChunk(state.completedChunks.length, state.currentChunk);
+        state.currentChunk = [];
+      }
+    }
     if (state.mode === STATE.PLAYING) {
       var typable = state.enemies.concat(state.powerups);
       var lockedIdBefore = InputEngine.getLockedEnemyId();
@@ -1111,7 +1143,8 @@ var Game = (function () {
     restored.pausedFromMode = saved.resumeMode;
     restored.mode = STATE.PAUSED;
     restored.seed = saved.seed || null;
-    restored.inputLog = saved.inputLog || null;
+    restored.currentChunk = saved.currentChunk || [];
+    restored.completedChunks = saved.completedChunks || [];
     restored.runId = saved.runId || null;
     restored.runStartedAt = saved.runStartedAt || null;
     restored.tickCount = saved.tickCount || 0;

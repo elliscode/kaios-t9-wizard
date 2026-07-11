@@ -97,6 +97,8 @@ def submit_route(event, version):
             "seed": int(game["seed"]),
             "version": game_version,
             "display_name": validated["display_name"],
+            "tick_count": validated["tick_count"],
+            "move_count": len(validated["input_log"]),
             "score": replay.get("score"),
             "mode": replay.get("mode"),
             "replay_duration_ms": int((time.time() - replay_started_at) * 1000),

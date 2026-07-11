@@ -62,6 +62,7 @@ exports.handler = async (event) => {
     version,
     seed,
     tickCount,
+    moveCount: inputLog.length,
     canvasWidth,
     canvasHeight,
     score: result.score,
