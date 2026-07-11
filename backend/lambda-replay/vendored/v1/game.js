@@ -1172,6 +1172,17 @@ var Game = (function () {
     // replay of this seed + input log would produce, instead of restarting
     // it -- see Rng.getState()'s comment in js/rng.js for why this matters.
     if (saved.rngState !== undefined) Rng.setState(saved.rngState);
+    // InputEngine is a separate module-level singleton, not part of `state`
+    // -- without this, a mid-sentence lock/typed-progress (e.g. a long
+    // world-5 boss sentence) would silently reset to nothing on resume even
+    // though the locked enemy/boss itself (part of `state`, restored above)
+    // keeps its exact saved position. Enemies/boss and this snapshot were
+    // saved atomically together, so the locked id here is guaranteed to
+    // still resolve against `restored.enemies`/`restored.boss`.
+    InputEngine.restoreSnapshot({
+      buffer: saved.inputBuffer || '',
+      lockedEnemyId: saved.inputLockedEnemyId != null ? saved.inputLockedEnemyId : null
+    });
     return restored;
   }
 

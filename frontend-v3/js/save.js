@@ -45,7 +45,15 @@ var SaveGame = (function () {
       // The RNG's live generator position, not just the seed -- resuming
       // must continue the same random sequence a from-scratch replay of
       // this seed + input log would produce, not restart it.
-      rngState: Rng.getState()
+      rngState: Rng.getState(),
+      // InputEngine is a separate module-level singleton, not part of
+      // `state` -- without this, a saved-and-reloaded boss sentence (world
+      // 5's run 100+ characters) would resume with the boss's position
+      // intact but typed progress silently wiped back to zero. Read
+      // directly from the live singleton, same pattern as Rng.getState()
+      // above.
+      inputBuffer: InputEngine.getBuffer(),
+      inputLockedEnemyId: InputEngine.getLockedEnemyId()
     };
 
     try {
