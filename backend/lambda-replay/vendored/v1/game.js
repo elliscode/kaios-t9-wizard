@@ -1006,8 +1006,23 @@ var Game = (function () {
       // input-log data, regardless of how far into the run this is.
       if (state.currentChunk.length >= INPUT_LOG_CHUNK_SIZE) {
         state.completedChunks.push(state.currentChunk);
-        if (typeof SaveGame !== 'undefined') SaveGame.saveLogChunk(state.completedChunks.length, state.currentChunk);
-        state.currentChunk = [];
+        if (typeof SaveGame !== 'undefined') {
+          SaveGame.saveLogChunk(state.completedChunks.length, state.currentChunk);
+          state.currentChunk = [];
+          // Meta save (which persists chunkCount) happens synchronously,
+          // right here, immediately after the chunk write above -- not left
+          // for the next kill/hit/powerup/pause to pick up. Otherwise, an
+          // ungraceful app kill (no pagehide/visibilitychange, e.g. the OS
+          // evicting a backgrounded app) landing between a boundary-crossing
+          // keypress that ISN'T itself a kill and the next one that is would
+          // leave chunkCount stale -- SaveGame.load() would then never even
+          // look for the chunk that was just written, silently losing it
+          // (and everything typed after it, once a later chunk overwrites
+          // the same now-orphaned key).
+          SaveGame.save(state);
+        } else {
+          state.currentChunk = [];
+        }
       }
     }
     if (state.mode === STATE.PLAYING) {
