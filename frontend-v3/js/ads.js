@@ -26,6 +26,13 @@ var AdsEngine = (function () {
   // never be able to permanently strand someone on this screen.
   var CLOSE_TIMEOUT_MS = 30000;
 
+  // How long showAd() will wait for an ad to become ready at all (SDK
+  // script load + the getKaiAd request itself) before giving up -- separate
+  // from CLOSE_TIMEOUT_MS above, which only starts once an ad is actually
+  // displaying. On a slow connection this is what stops the "Loading..."
+  // screen (renderAdOverlay) from hanging indefinitely.
+  var AD_READY_TIMEOUT_MS = 10000;
+
   var sdkLoadStarted = false;
   var sdkReady = false;
   var pendingSdkCallbacks = [];
@@ -125,9 +132,9 @@ var AdsEngine = (function () {
   // host, no fill, etc. all just skip straight to onDone).
   function showAd(onDone) {
     // finish() is idempotent and is the only thing that reaches onDone below
-    // -- guards against the SDK-load fallback timeout firing and then a
-    // slow-but-successful load calling back a second time, which would
-    // otherwise replay the caller's onDone (e.g. returnToMenu()) twice.
+    // -- guards against AD_READY_TIMEOUT_MS firing and then a slow-but-
+    // successful load calling back a second time, which would otherwise
+    // replay the caller's onDone (e.g. returnToMenu()) twice.
     var done = false;
     function finish() {
       if (done) return;
@@ -142,13 +149,18 @@ var AdsEngine = (function () {
     if (preloadedAd) {
       var ad = preloadedAd;
       preloadedAd = null;
-      displayAndWait(ad, finish);
+      displayAndWait(ad, finish); // already ready -- no AD_READY_TIMEOUT_MS needed
       preloadAd(); // top back up for the next game-over/quit this session
       return;
     }
+    // Covers both failure modes in one deadline: the SDK script never
+    // loading at all (ensureSdkLoaded's callback below never runs), and the
+    // script loading fine but getKaiAd's own onready/onerror hanging.
+    var readyTimer = setTimeout(finish, AD_READY_TIMEOUT_MS);
     ensureSdkLoaded(function () {
       try {
         if (typeof getKaiAd !== 'function') {
+          clearTimeout(readyTimer);
           finish();
           return;
         }
@@ -156,21 +168,20 @@ var AdsEngine = (function () {
           publisher: KAIADS_PUBLISHER,
           app: KAIADS_APP,
           slot: KAIADS_SLOT,
-          onerror: finish,
+          onerror: function () {
+            clearTimeout(readyTimer);
+            finish();
+          },
           onready: function (ad) {
+            clearTimeout(readyTimer);
             displayAndWait(ad, finish);
           }
         });
       } catch (e) {
+        clearTimeout(readyTimer);
         finish();
       }
     });
-    // If the SDK never becomes ready at all (script failed to load), the
-    // queued ensureSdkLoaded callback above simply never runs -- fall back
-    // to continuing after a short wait rather than never calling onDone.
-    setTimeout(function () {
-      if (!sdkReady) finish();
-    }, 5000);
   }
 
   return { preloadAd: preloadAd, showAd: showAd };

@@ -289,7 +289,7 @@ var Render = (function () {
     // A game over always shows an ad before continuing -- win never does
     // (see renderWinOverlay/handleMenuKey) -- so the second line differs
     // depending on what happens after the ad closes.
-    var submittable = !state.bossRush && state.runId != null;
+    var submittable = Game.isRunSubmittable(state);
     ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
     ctx.fillText(submittable ? 'submit your score' : 'return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 46);
     ctx.textAlign = 'left';
@@ -308,7 +308,7 @@ var Render = (function () {
     ctx.font = '10px monospace';
     ctx.fillText(state.bossRush ? 'All 5 bosses defeated' : 'All 5 worlds cleared', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
-    var submittable = !state.bossRush && state.runId != null;
+    var submittable = Game.isRunSubmittable(state);
     ctx.fillText(submittable ? 'Press 1 to submit score' : 'Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
     ctx.textAlign = 'left';
   }
@@ -437,13 +437,23 @@ var Render = (function () {
     ctx.textAlign = 'center';
     ctx.fillText('PAUSED', CANVAS_WIDTH / 2, 30);
     ctx.font = '10px monospace';
-    // Same eligibility check as the WIN/GAMEOVER/LEADERBOARD screens' bottom
-    // text (no shared export for it -- see those for the same duplicated
-    // check) surfaced here too, so a player who dies/quits mid-run finds out
-    // *before* the fact rather than being surprised on the game-over screen.
-    var submittable = !state.bossRush && state.runId != null;
-    ctx.fillText(submittable ? 'Leaderboard: eligible' : 'Leaderboard: NOT eligible', CANVAS_WIDTH / 2, 50);
-    if (!submittable) ctx.fillText('(start a new run online)', CANVAS_WIDTH / 2, 64);
+    // Same status Game.isRunSubmittable(state) reduces to for the
+    // WIN/GAMEOVER screens' bottom text, but shown here as the specific
+    // reason (not just eligible/not) so a player who dies/quits mid-run
+    // finds out *before* the fact rather than being surprised on game-over.
+    var status = Game.submissionStatus(state);
+    if (status === 'ok') {
+      ctx.fillText("You're eligible for the leaderboard!", CANVAS_WIDTH / 2, 50);
+    } else if (status === 'low_score') {
+      ctx.fillText('Score 1000+ to submit to', CANVAS_WIDTH / 2, 50);
+      ctx.fillText('the leaderboard!', CANVAS_WIDTH / 2, 64);
+    } else if (status === 'expired') {
+      ctx.fillText('This run is too old to submit', CANVAS_WIDTH / 2, 50);
+      ctx.fillText('(7-day limit)', CANVAS_WIDTH / 2, 64);
+    } else {
+      ctx.fillText("This run isn't eligible for", CANVAS_WIDTH / 2, 50);
+      ctx.fillText('the leaderboard', CANVAS_WIDTH / 2, 64);
+    }
     ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 52);
     ctx.fillText('Press * to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36);
     ctx.textAlign = 'left';

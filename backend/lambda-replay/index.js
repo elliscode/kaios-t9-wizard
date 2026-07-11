@@ -27,6 +27,7 @@ function loadVersion(version) {
 
 exports.handler = async (event) => {
   const { version, seed, inputLog, tickCount, canvasWidth, canvasHeight } = event;
+  const startedAt = Date.now();
 
   // Throws (surfaces to the caller as a Lambda FunctionError) if this
   // version was never cut via cut-version.sh -- in practice this should
@@ -51,5 +52,21 @@ exports.handler = async (event) => {
   sourceFiles.forEach((src) => vm.runInContext(src, sandbox));
 
   const result = sandbox.Game.replayRun(seed, inputLog, tickCount);
+  // Logged here (inside the replay Lambda itself) as well as by the caller
+  // (submit_route in t9_wizard.py, which logs the same score/seed plus the
+  // full round-trip invoke() latency) -- this one is scoped to pure
+  // replay-compute time, useful for isolating a slow replay from Lambda
+  // invocation/cold-start overhead on the caller's side.
+  console.log(JSON.stringify({
+    event: 'replay_lambda_completed',
+    version,
+    seed,
+    tickCount,
+    canvasWidth,
+    canvasHeight,
+    score: result.score,
+    mode: result.mode,
+    duration_ms: Date.now() - startedAt,
+  }));
   return { score: result.score, mode: result.mode, wave: result.wave, lives: result.lives };
 };

@@ -24,6 +24,11 @@ var Game = (function () {
   var ENEMIES_PER_WAVE = 20;
   var STARTING_LIVES = 3;
   var TRANSITION_DURATION_MS = 2000;
+  // Must match backend/lambda/t9_wizard/utils.py's RUN_EXPIRATION_SECONDS (7
+  // days) -- no shared source of truth is possible across a static JS bundle
+  // and a Python Lambda, so keep these two in sync by hand if either changes.
+  var RUN_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000;
+  var MIN_SUBMITTABLE_SCORE = 1000;
   var AUTO_PAUSE_THRESHOLD_MS = 500; // a frame gap this large means the tab was backgrounded/suspended
   // Fixed simulation step (~30 ticks/sec) -- decouples game logic from render
   // framerate (which still runs at requestAnimationFrame's native rate) so a
@@ -129,6 +134,7 @@ var Game = (function () {
       seed: null,
       inputLog: null,
       runId: null,
+      runStartedAt: null,
       submitResult: null,
       submitError: null,
       leaderboardEntries: null,
@@ -666,6 +672,7 @@ var Game = (function () {
       if (result.ok && result.body && result.body.run_id) {
         thisRun.runId = result.body.run_id;
         thisRun.seed = result.body.seed;
+        thisRun.runStartedAt = Date.now();
       } else {
         thisRun.seed = Math.floor(Math.random() * 0x7fffffff);
       }
@@ -727,14 +734,30 @@ var Game = (function () {
     state.pausedFromMode = null;
   }
 
-  // A win only counts toward the leaderboard if it has a run_id (the
-  // server-issued seed round trip actually succeeded -- see beginRun) and
-  // isn't a boss-rush practice run (startBossRush deliberately never sets
-  // one, so this second check is mostly redundant with the first, but
-  // makes the real requirement explicit rather than relying on that as an
-  // implementation detail).
-  function isRunSubmittable() {
-    return !state.bossRush && state.runId != null;
+  // Why a run can/can't be submitted, not just whether -- so the pause
+  // screen (see renderPauseOverlay) can explain the specific reason instead
+  // of a flat eligible/not-eligible label. Takes state explicitly (like
+  // Game.waveInWorld/getWordLengthRangeForWave already do) so render.js can
+  // call Game.submissionStatus(state) with its own state param, rather than
+  // reaching into this module's private state.
+  //
+  // - 'not_a_run': no run_id (offline start) or a boss-rush practice run --
+  //   the server-issued seed round trip either never happened or doesn't
+  //   count (see beginRun/startBossRush).
+  // - 'expired': past the same RUN_EXPIRATION_SECONDS window the backend
+  //   enforces server-side (get_game) -- checked here too so the pause
+  //   screen doesn't need a round trip to find out a submit would 404.
+  // - 'low_score': a real, non-expired run, just under MIN_SUBMITTABLE_SCORE.
+  // - 'ok': submittable.
+  function submissionStatus(state) {
+    if (state.bossRush || state.runId == null) return 'not_a_run';
+    if (state.runStartedAt != null && Date.now() - state.runStartedAt > RUN_EXPIRATION_MS) return 'expired';
+    if (state.score < MIN_SUBMITTABLE_SCORE) return 'low_score';
+    return 'ok';
+  }
+
+  function isRunSubmittable(state) {
+    return submissionStatus(state) === 'ok';
   }
 
   // Shown only on losing (GAMEOVER) or confirming a quit -- never on WIN --
@@ -764,7 +787,7 @@ var Game = (function () {
     } else if (state.mode === STATE.WIN) {
       // A win never shows an ad -- only losing/quitting does (see
       // showGatedAd).
-      if (isRunSubmittable()) {
+      if (isRunSubmittable(state)) {
         enterNameEntry();
       } else {
         returnToMenu();
@@ -772,10 +795,10 @@ var Game = (function () {
     } else if (state.mode === STATE.GAMEOVER) {
       showGatedAd(function () {
         // A game over is a legitimate, submittable result too (see
-        // submit_route) -- not just a real win. Same gate either way: no
-        // run_id (offline start, or a boss-rush practice run) just returns
-        // to the menu instead.
-        if (isRunSubmittable()) {
+        // submit_route) -- not just a real win. Same gate either way: a
+        // non-'ok' submissionStatus (no run_id, boss-rush, expired, or under
+        // MIN_SUBMITTABLE_SCORE) just returns to the menu instead.
+        if (isRunSubmittable(state)) {
           enterNameEntry();
         } else {
           returnToMenu();
@@ -1090,6 +1113,7 @@ var Game = (function () {
     restored.seed = saved.seed || null;
     restored.inputLog = saved.inputLog || null;
     restored.runId = saved.runId || null;
+    restored.runStartedAt = saved.runStartedAt || null;
     restored.tickCount = saved.tickCount || 0;
     restored.score = saved.score || 0;
     restored.scoreMultiplier = saved.scoreMultiplier || 1;
@@ -1140,6 +1164,8 @@ var Game = (function () {
     getWordLengthRangeForWave: getWordLengthRangeForWave,
     worldOfWave: worldOfWave,
     waveInWorld: waveInWorld,
-    replayRun: replayRun
+    replayRun: replayRun,
+    submissionStatus: submissionStatus,
+    isRunSubmittable: isRunSubmittable
   };
 })();

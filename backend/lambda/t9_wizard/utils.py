@@ -19,6 +19,14 @@ REPLAY_LAMBDA_NAME = os.environ.get("REPLAY_LAMBDA_NAME")
 # redeploy, no code change. See extract_version and the replay Lambda's own
 # version-keyed vendored/v<N>/ snapshots (backend/lambda-replay/index.js).
 KNOWN_VERSIONS = {int(v) for v in os.environ.get("KNOWN_VERSIONS", "").split(",") if v}
+# The real screen dimensions a legitimate KaiOS device can report (see
+# submit_route) -- an allowlist, not a formula, since it's cheaper to just
+# list the handful of real values than to compute/guess at them. Left unset
+# (empty) means "don't enforce this" -- lets the check go live only once the
+# real values are known/confirmed, and can be widened later (a new device
+# with a different screen) purely via an env var edit, no code change.
+EXPECTED_CANVAS_WIDTHS = {int(v) for v in os.environ.get("EXPECTED_CANVAS_WIDTHS", "").split(",") if v}
+EXPECTED_CANVAS_HEIGHTS = {int(v) for v in os.environ.get("EXPECTED_CANVAS_HEIGHTS", "").split(",") if v}
 # Admin moderation login (see login_route/otp_route) -- a single hardcoded
 # phone number, not a general user system, since there's only ever one
 # legitimate admin. SMS is sent through an already-deployed, project-agnostic

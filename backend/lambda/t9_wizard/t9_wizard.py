@@ -1,6 +1,8 @@
 import json
 import secrets
+import time
 
+from t9_wizard.logger import log
 from t9_wizard.utils import (
     format_response,
     parse_body,
@@ -17,6 +19,8 @@ from t9_wizard.utils import (
     get_pending_names,
     approve_pending_name,
     deny_pending_name,
+    EXPECTED_CANVAS_WIDTHS,
+    EXPECTED_CANVAS_HEIGHTS,
 )
 from t9_wizard.input_validation import validate_schema, SUBMIT_SCHEMA, MODERATE_NAME_SCHEMA
 
@@ -50,11 +54,19 @@ def submit_route(event, version):
     if game_version != version:
         return format_response(event=event, http_code=400, body="Run does not belong to this API version")
 
+    # An empty allowlist (the env var unset) means this check is off --
+    # see EXPECTED_CANVAS_WIDTHS/EXPECTED_CANVAS_HEIGHTS in utils.py.
+    if EXPECTED_CANVAS_WIDTHS and validated["canvas_width"] not in EXPECTED_CANVAS_WIDTHS:
+        return format_response(event=event, http_code=400, body="Invalid canvas_width")
+    if EXPECTED_CANVAS_HEIGHTS and validated["canvas_height"] not in EXPECTED_CANVAS_HEIGHTS:
+        return format_response(event=event, http_code=400, body="Invalid canvas_height")
+
     # The stored seed is used, never anything the client might have sent --
     # there's nothing for a client to spoof if it never gets a say in the
     # seed at all. This Lambda re-simulates the exact frontend game logic
     # for this run's specific version (see backend/lambda-replay) and is the
     # only thing this route trusts.
+    replay_started_at = time.time()
     invoke_result = lambda_client.invoke(
         FunctionName=REPLAY_LAMBDA_NAME,
         InvocationType="RequestResponse",
@@ -76,6 +88,20 @@ def submit_route(event, version):
         return format_response(event=event, http_code=400, body="Invalid input_log")
 
     replay = json.loads(invoke_result["Payload"].read())
+    # Logged for every replay outcome (not just accepted ones) -- useful for
+    # spotting slow or suspicious replays even when they get rejected below.
+    log(
+        {
+            "event": "replay_completed",
+            "run_id": run_id,
+            "seed": int(game["seed"]),
+            "version": game_version,
+            "display_name": validated["display_name"],
+            "score": replay.get("score"),
+            "mode": replay.get("mode"),
+            "replay_duration_ms": int((time.time() - replay_started_at) * 1000),
+        }
+    )
 
     # The server only trusts what its own replay produced -- never what the
     # client claims happened. A run still in progress (the replay somehow

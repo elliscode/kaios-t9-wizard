@@ -29,6 +29,7 @@ var SaveGame = (function () {
       seed: state.seed,
       inputLog: state.inputLog,
       runId: state.runId,
+      runStartedAt: state.runStartedAt,
       tickCount: state.tickCount,
       score: state.score,
       scoreMultiplier: state.scoreMultiplier,
