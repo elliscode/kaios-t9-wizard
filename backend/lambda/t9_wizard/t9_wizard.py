@@ -12,6 +12,7 @@ from t9_wizard.utils import (
     delete_game,
     create_leaderboard_entry,
     get_leaderboard,
+    save_champion_run,
     LEADERBOARD_LIMIT_DEFAULT,
     lambda_client,
     REPLAY_LAMBDA_NAME,
@@ -115,7 +116,28 @@ def submit_route(event, version):
         return format_response(event=event, http_code=400, body="Run did not reach a valid end state")
 
     score = replay["score"]
-    create_leaderboard_entry(run_id, validated["display_name"], score, game_version)
+    leaderboard_entry = create_leaderboard_entry(run_id, validated["display_name"], score, game_version)
+    # Reuses leaderboard_entry["display_name"] (already moderation-safe --
+    # the real name, or a placeholder if unapproved) rather than the raw
+    # validated["display_name"], so an unmoderated name can never end up on
+    # a record destined for something as public as a season-recap video.
+    # Never allowed to break submission -- a DynamoDB hiccup here shouldn't
+    # cost a legitimate player their score, same "nice to have" treatment as
+    # SaveGame/AudioEngine elsewhere in this codebase.
+    try:
+        save_champion_run(
+            version=game_version,
+            run_id=run_id,
+            display_name=leaderboard_entry["display_name"],
+            score=score,
+            seed=int(game["seed"]),
+            input_log=validated["input_log"],
+            tick_count=validated["tick_count"],
+            canvas_width=validated["canvas_width"],
+            canvas_height=validated["canvas_height"],
+        )
+    except Exception as e:
+        log({"event": "save_champion_run_failed", "run_id": run_id, "version": game_version, "error": str(e)})
     # Deleting the game record makes run_id single-use -- the same run can
     # never be submitted a second time, closing off resubmission-for-a-
     # better-score abuse. Done last so a failed leaderboard write (above)
