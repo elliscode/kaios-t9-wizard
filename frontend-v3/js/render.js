@@ -2,6 +2,10 @@ var Render = (function () {
   var CANVAS_WIDTH = Layout.CANVAS_WIDTH;
   var CANVAS_HEIGHT = Layout.CANVAS_HEIGHT;
   var BOSS_SENTENCE_WRAP_CHARS = 36;
+  // Hardcoded, not derived from index.html's ?v= cache-busting query params --
+  // bump this by hand alongside those on each release (a project-wide
+  // find/replace already covers every ?v=X.Y.Z occurrence at once).
+  var GAME_VERSION = '3.1.4';
 
   function renderPlayField(ctx, state) {
     // Brief dark-red flash on a real (non-benign) mistake -- see
@@ -262,7 +266,12 @@ var Render = (function () {
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('T9 WIZARD', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+    ctx.fillText('T9 WIZARD', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 50);
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Season 1', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
+    ctx.font = '8px monospace';
+    ctx.fillText('v' + GAME_VERSION, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 13);
     ctx.font = '10px monospace';
     ctx.fillText('Press 1 to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
     // Boss rush was a boss-balance testing tool -- balance is settled now,

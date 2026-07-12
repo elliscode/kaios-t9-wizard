@@ -27,14 +27,30 @@ var SaveGame = (function () {
       halfSpeedRemainingMs: state.halfSpeedRemainingMs,
       halfLengthRemainingMs: state.halfLengthRemainingMs,
       usedSentences: state.usedSentences,
+      // Every one of these three feeds directly into *when* things happen
+      // tick-by-tick (spawnAccumulator controls exactly which tick the next
+      // enemy spawns on, hence which tick consumes the next Rng.next() call
+      // for its position; waveCompletePending/powerupFlash gate exactly
+      // which tick a wave transition fires). The server's replay is a
+      // single continuous simulation with no concept of pausing -- it just
+      // runs update() tick after tick from 0. If a resume silently reset
+      // any of these (as they used to, before this fix), the *live*
+      // session's spawn/transition timing would drift from what that
+      // from-scratch replay computes, and every Rng.next() draw from that
+      // point on would diverge -- explaining scores coming back far lower
+      // (or a different mode entirely) than what was actually played,
+      // regardless of how short the run was.
+      spawnAccumulator: state.spawnAccumulator,
+      waveCompletePending: state.waveCompletePending,
+      powerupFlash: state.powerupFlash,
       seed: state.seed,
       // currentChunk is hard-capped at INPUT_LOG_CHUNK_SIZE (game.js) --
       // completed chunks live under their own CHUNK_KEY_PREFIX keys (see
       // saveLogChunk), written once each and never re-serialized here, so
       // this payload's size stays flat regardless of how long the run has
-      // been going.
+      // been going. Deliberately no chunkCount field here -- see load()'s
+      // comment for why a separately-written count can never be trusted.
       currentChunk: state.currentChunk,
-      chunkCount: (state.completedChunks || []).length,
       runId: state.runId,
       runStartedAt: state.runStartedAt,
       tickCount: state.tickCount,
@@ -96,52 +112,72 @@ var SaveGame = (function () {
     if (!parsed || parsed.saveVersion !== SAVE_VERSION) return null;
     if (parsed.resumeMode !== 'playing' && parsed.resumeMode !== 'boss') return null;
 
-    var completedChunks = [];
-    for (var i = 1; i <= (parsed.chunkCount || 0); i++) {
-      var chunkRaw = null;
-      try {
-        chunkRaw = window.localStorage.getItem(CHUNK_KEY_PREFIX + i);
-      } catch (e) {}
-      // A missing/corrupt chunk makes the whole save unusable -- a gap here
-      // would make the eventual submitted input_log incomplete, and the
-      // server's replay would diverge and reject the score. Better to fall
-      // back to "no resumable save" (same as a bad saveVersion/resumeMode
-      // above) than resume into a run that can never legitimately submit.
-      if (!chunkRaw) return null;
-      try {
-        completedChunks.push(JSON.parse(chunkRaw));
-      } catch (e) {
-        return null;
-      }
-    }
-    parsed.completedChunks = completedChunks;
+    parsed.completedChunks = readAllChunks();
     return parsed;
   }
 
-  // Reads the meta key's own chunkCount first (rather than looping over a
-  // hardcoded guess) so this stays correct regardless of how long a run got
-  // before it was cleared -- a long run can rack up more than a handful of
-  // INPUT_LOG_CHUNK_SIZE-sized chunks.
-  function clear() {
-    var chunkCount = 0;
-    try {
-      var raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) chunkCount = JSON.parse(raw).chunkCount || 0;
-    } catch (e) {
-      // ignore -- worst case we just don't know how many chunk keys to
-      // clean up below, same as if there was never a save to begin with.
+  // Reads chunk.1, chunk.2, ... by directly probing storage, stopping at the
+  // first missing or corrupt one -- deliberately NOT driven by a count
+  // stored anywhere else. A chunk's own write (saveLogChunk) is a single
+  // localStorage.setItem call, so it's atomic on its own; a *separate*
+  // "how many chunks exist" counter written afterward never can be truly
+  // atomic *with* it, no matter how immediately it follows -- an app kill
+  // landing between the two leaves the counter stale (under-claiming what's
+  // actually on disk), and a loop bounded by that stale count would never
+  // even look for a chunk that's genuinely sitting right there. Probing
+  // avoids the second write (and thus the gap) entirely: whatever's
+  // durably on disk is exactly what gets found, nothing more coordinated to
+  // fall out of sync. A gap partway through (rather than at the very start)
+  // is indistinguishable from "that's all there was" here -- both safely
+  // stop at the boundary rather than skip over a hole, which is the only
+  // sound choice either way (ticks past a real gap can never be validly
+  // reassembled into a contiguous input_log).
+  function readAllChunks() {
+    var chunks = [];
+    var i = 1;
+    while (true) {
+      var chunkRaw = null;
+      try {
+        chunkRaw = window.localStorage.getItem(CHUNK_KEY_PREFIX + i);
+      } catch (e) {
+        break;
+      }
+      if (!chunkRaw) break;
+      try {
+        chunks.push(JSON.parse(chunkRaw));
+      } catch (e) {
+        break;
+      }
+      i += 1;
     }
+    return chunks;
+  }
+
+  function clear() {
     try {
       window.localStorage.removeItem(STORAGE_KEY);
     } catch (e) {
       // ignore
     }
-    for (var i = 1; i <= chunkCount; i++) {
+    // Same probing approach as load()/readAllChunks() -- no stored count to
+    // trust, so just keep removing consecutively-numbered keys until one
+    // isn't there.
+    var i = 1;
+    while (true) {
+      var key = CHUNK_KEY_PREFIX + i;
+      var exists;
       try {
-        window.localStorage.removeItem(CHUNK_KEY_PREFIX + i);
+        exists = window.localStorage.getItem(key) !== null;
+      } catch (e) {
+        break;
+      }
+      if (!exists) break;
+      try {
+        window.localStorage.removeItem(key);
       } catch (e) {
         // ignore
       }
+      i += 1;
     }
   }
 

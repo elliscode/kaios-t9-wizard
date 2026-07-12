@@ -1009,16 +1009,18 @@ var Game = (function () {
         if (typeof SaveGame !== 'undefined') {
           SaveGame.saveLogChunk(state.completedChunks.length, state.currentChunk);
           state.currentChunk = [];
-          // Meta save (which persists chunkCount) happens synchronously,
-          // right here, immediately after the chunk write above -- not left
-          // for the next kill/hit/powerup/pause to pick up. Otherwise, an
-          // ungraceful app kill (no pagehide/visibilitychange, e.g. the OS
-          // evicting a backgrounded app) landing between a boundary-crossing
-          // keypress that ISN'T itself a kill and the next one that is would
-          // leave chunkCount stale -- SaveGame.load() would then never even
-          // look for the chunk that was just written, silently losing it
-          // (and everything typed after it, once a later chunk overwrites
-          // the same now-orphaned key).
+          // The meta save's own `currentChunk` field needs to reflect the
+          // just-emptied array right away, not whenever the next unrelated
+          // kill/hit/powerup/pause happens to save next -- otherwise, an app
+          // kill in between would leave the meta blob's `currentChunk` at
+          // its stale pre-flush contents (the same 250 entries that are now
+          // ALSO safely captured under their own chunk key, see
+          // SaveGame.load()'s comment), double-counting that chunk on
+          // resume. SaveGame.load() itself no longer trusts any separately-
+          // persisted "how many chunks exist" count for the chunks
+          // themselves (see readAllChunks()'s comment for why), so this call
+          // is purely about keeping `currentChunk` itself accurate, not
+          // about a chunk count.
           SaveGame.save(state);
         } else {
           state.currentChunk = [];
@@ -1124,6 +1126,22 @@ var Game = (function () {
       }
       if (isActiveSimulationMode()) update(TICK_MS);
     }
+    // The loop above only ever reaches tick values in [0, tickCount) -- an
+    // entry tagged exactly tick === tickCount (a keypress recorded at
+    // whatever state.tickCount was the instant it was pressed) would
+    // otherwise never get processed at all. This isn't a rare edge case:
+    // tickCount stops advancing the moment the game ends (GAMEOVER/WIN
+    // exits isActiveSimulationMode()), so the very keypress that *causes*
+    // the run to end routinely lands on exactly this boundary tick, and
+    // was being silently dropped from every replay -- consistently, since
+    // both the client's own local replayRun and the vendored copy the
+    // replay Lambda runs share this exact code, so it never showed up as a
+    // frontend/backend mismatch, only as a mismatch against what actually
+    // happened live.
+    while (inputIndex < inputLog.length && inputLog[inputIndex].tick === tickCount) {
+      handleDigitKey(inputLog[inputIndex].key);
+      inputIndex++;
+    }
 
     var result = state;
     state = savedState;
@@ -1155,6 +1173,14 @@ var Game = (function () {
     restored.halfSpeedRemainingMs = saved.halfSpeedRemainingMs || 0;
     restored.halfLengthRemainingMs = saved.halfLengthRemainingMs || 0;
     restored.usedSentences = saved.usedSentences || {};
+    // See save.js's comment on these three -- each affects exactly which
+    // tick something happens on (a spawn, a wave transition), so silently
+    // resetting any of them here would make a resumed session's timing
+    // drift from what a from-scratch replay of the same input log computes,
+    // desyncing every Rng.next() draw from that point on.
+    restored.spawnAccumulator = saved.spawnAccumulator || 0;
+    restored.waveCompletePending = !!saved.waveCompletePending;
+    restored.powerupFlash = saved.powerupFlash || null;
     restored.pausedFromMode = saved.resumeMode;
     restored.mode = STATE.PAUSED;
     restored.seed = saved.seed || null;
