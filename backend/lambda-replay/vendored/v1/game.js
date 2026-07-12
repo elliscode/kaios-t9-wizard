@@ -927,7 +927,25 @@ var Game = (function () {
       // Never trusted for scoring (the server's own replay is the only
       // source of truth for that) -- sent purely so the backend can flag a
       // client/server mismatch, whether from a bug or a tampered client.
-      client_score: state.score
+      // wave/lives ride along with score so a mismatch log can tell "the
+      // scoring formula diverged" apart from "the simulated game state
+      // itself diverged" (different wave/lives reached) -- the latter
+      // narrows down roughly when/where a desync started.
+      client_score: state.score,
+      client_wave: state.wave,
+      client_lives: state.lives,
+      // Whether SaveGame ever failed to durably write during this run (see
+      // save.js's chunk-flush guard in handleDigitKey) -- a nonzero count
+      // here alongside a clean score/wave/lives match is exactly what
+      // confirms the retry-until-durable fix actually recovered from a
+      // failure; alongside a mismatch, it points straight at the cause
+      // instead of leaving it a mystery. lastError is `|| undefined` (not
+      // sent as a bare null) so JSON.stringify omits the key entirely on
+      // the (common) no-failure case -- an explicit null would still be
+      // present-but-invalid against the backend's optional string schema
+      // field and fail the whole submission.
+      client_storage_write_failures: SaveGame.getStorageDiagnostics().failureCount,
+      client_storage_last_error: SaveGame.getStorageDiagnostics().lastError || undefined
     }).then(function (result) {
       if (state !== thisState) return;
       if (result.ok && result.body && result.body.score != null) {
@@ -1003,30 +1021,50 @@ var Game = (function () {
     // same key at the same tick count reproduces the exact same outcome.
     if (state.currentChunk) {
       state.currentChunk.push({ tick: state.tickCount, key: digit });
-      // Flushed to its own SaveGame storage key and reset once it hits
-      // INPUT_LOG_CHUNK_SIZE -- keeps the hot-path SaveGame.save() call
-      // (see checkCollisions/handleKill/collectPowerup/boss hit-kill) from
-      // ever having to serialize more than a fixed, constant amount of
-      // input-log data, regardless of how far into the run this is.
-      if (state.currentChunk.length >= INPUT_LOG_CHUNK_SIZE) {
-        state.completedChunks.push(state.currentChunk);
+      // Flushed to its own SaveGame storage key and reset once it hits a
+      // multiple of INPUT_LOG_CHUNK_SIZE -- keeps the hot-path
+      // SaveGame.save() call (see checkCollisions/handleKill/collectPowerup/
+      // boss hit-kill) from ever having to serialize more than a fixed,
+      // constant amount of input-log data, regardless of how far into the
+      // run this is. A modulo check (not >=) so that if a flush attempt
+      // fails (see below) and currentChunk keeps growing past the
+      // threshold, the next retry lands on the next multiple instead of
+      // firing on every single subsequent keypress.
+      if (state.currentChunk.length % INPUT_LOG_CHUNK_SIZE === 0) {
         if (typeof SaveGame !== 'undefined') {
-          SaveGame.saveLogChunk(state.completedChunks.length, state.currentChunk);
-          state.currentChunk = [];
-          // The meta save's own `currentChunk` field needs to reflect the
-          // just-emptied array right away, not whenever the next unrelated
-          // kill/hit/powerup/pause happens to save next -- otherwise, an app
-          // kill in between would leave the meta blob's `currentChunk` at
-          // its stale pre-flush contents (the same 250 entries that are now
-          // ALSO safely captured under their own chunk key, see
-          // SaveGame.load()'s comment), double-counting that chunk on
-          // resume. SaveGame.load() itself no longer trusts any separately-
-          // persisted "how many chunks exist" count for the chunks
-          // themselves (see readAllChunks()'s comment for why), so this call
-          // is purely about keeping `currentChunk` itself accurate, not
-          // about a chunk count.
+          // Only commit this chunk -- moving it into completedChunks and
+          // clearing currentChunk -- once saveLogChunk confirms it's
+          // actually durable. A failed write (quota, or anything else
+          // localStorage can throw) must never look identical to a
+          // succeeded one: if it did, these keystrokes would vanish from
+          // every future save (the very next meta save() would persist an
+          // empty currentChunk, "proving" there was nothing pending, even
+          // though this chunk was never written anywhere), and
+          // readAllChunks()'s gap-tolerant probing would silently truncate
+          // the input_log at this exact point on the next resume. Left
+          // as-is (oversized, past the threshold), it keeps riding along
+          // inside every subsequent meta save() until a retry succeeds --
+          // never gone until it's confirmed durable.
+          var chunkNumber = state.completedChunks.length + 1;
+          if (SaveGame.saveLogChunk(chunkNumber, state.currentChunk)) {
+            state.completedChunks.push(state.currentChunk);
+            state.currentChunk = [];
+          }
+          // The meta save's own `currentChunk` field needs to reflect
+          // whatever just happened right away, not whenever the next
+          // unrelated kill/hit/powerup/pause happens to save next --
+          // otherwise, an app kill in between would leave the meta blob's
+          // `currentChunk` at its stale pre-flush contents (the same 250
+          // entries that are now ALSO safely captured under their own
+          // chunk key, see SaveGame.load()'s comment), double-counting
+          // that chunk on resume. SaveGame.load() itself no longer trusts
+          // any separately-persisted "how many chunks exist" count for the
+          // chunks themselves (see readAllChunks()'s comment for why), so
+          // this call is purely about keeping `currentChunk` itself
+          // accurate, not about a chunk count.
           SaveGame.save(state);
         } else {
+          state.completedChunks.push(state.currentChunk);
           state.currentChunk = [];
         }
       }

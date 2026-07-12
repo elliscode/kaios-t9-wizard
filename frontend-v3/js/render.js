@@ -5,7 +5,7 @@ var Render = (function () {
   // Hardcoded, not derived from index.html's ?v= cache-busting query params --
   // bump this by hand alongside those on each release (a project-wide
   // find/replace already covers every ?v=X.Y.Z occurrence at once).
-  var GAME_VERSION = '3.1.5';
+  var GAME_VERSION = '3.1.7';
 
   function renderPlayField(ctx, state) {
     // Brief dark-red flash on a real (non-benign) mistake -- see
@@ -220,6 +220,17 @@ var Render = (function () {
     ctx.textAlign = 'right';
     ctx.fillText('Multiplier: x' + state.scoreMultiplier.toFixed(1), CANVAS_WIDTH - HUD_MARGIN, HUD_MARGIN);
     ctx.textAlign = 'left';
+    // Only ever visible if a localStorage write actually failed (see
+    // SaveGame.getStorageDiagnostics/save.js) -- invisible in the common
+    // case, but surfaces a failure the instant it happens during live play
+    // instead of only being discoverable later via the submit payload.
+    if (typeof SaveGame !== 'undefined') {
+      var failures = SaveGame.getStorageDiagnostics().failureCount;
+      if (failures > 0) {
+        ctx.fillStyle = '#f33';
+        ctx.fillText('SAVE ERR x' + failures, HUD_MARGIN, HUD_MARGIN + 12);
+      }
+    }
   }
 
   // The HUD is a small overlay drawn directly on top of the play field in

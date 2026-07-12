@@ -2,6 +2,7 @@ import re
 
 ID_REGEX = "^[a-zA-Z0-9]{32}$"  # matches create_id(32), e.g. a run_id
 DISPLAY_NAME_MAX_LENGTH = 20
+STORAGE_ERROR_MAX_LENGTH = 200
 T9_DIGITS = set("23456789")
 
 
@@ -32,6 +33,15 @@ def validate_t9_digit(value):
     if isinstance(value, str) and value in T9_DIGITS:
         return value
     return None
+
+
+# Diagnostic-only free text (a caught JS Error's name+message, see save.js's
+# recordStorageFailure) -- never displayed or matched against anything, just
+# length-capped so a single field can't blow up log line size.
+def validate_error_string(value):
+    if not isinstance(value, str):
+        return None
+    return value[:STORAGE_ERROR_MAX_LENGTH]
 
 
 # int(value)/float(value) raise on non-numeric input instead of returning
@@ -108,6 +118,11 @@ SUBMIT_SCHEMA = {
         # this at all. validate_schema's optional handling already treats a
         # genuinely-absent field as fine, no error.
         {"type": validate_non_negative_number, "name": "client_score", "optional": True},
+        # Same "old client, field just absent" story as client_score above.
+        {"type": validate_non_negative_int, "name": "client_wave", "optional": True},
+        {"type": validate_non_negative_int, "name": "client_lives", "optional": True},
+        {"type": validate_non_negative_int, "name": "client_storage_write_failures", "optional": True},
+        {"type": validate_error_string, "name": "client_storage_last_error", "optional": True},
         {
             "type": list,
             "name": "input_log",

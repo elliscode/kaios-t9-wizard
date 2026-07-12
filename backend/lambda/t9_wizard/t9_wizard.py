@@ -96,6 +96,11 @@ def submit_route(event, version):
     replay = json.loads(invoke_result["Payload"].read())
     # Logged for every replay outcome (not just accepted ones) -- useful for
     # spotting slow or suspicious replays even when they get rejected below.
+    # client_storage_write_failures/last_error ride along unconditionally
+    # (not gated behind a mismatch) -- a nonzero count here with an otherwise
+    # clean score/wave/lives match is exactly how we'd confirm the
+    # retry-until-durable fix in game.js's chunk-flush block actually
+    # recovered from a real failure, without needing to reproduce one live.
     log(
         {
             "event": "replay_completed",
@@ -108,43 +113,84 @@ def submit_route(event, version):
             "score": replay.get("score"),
             "mode": replay.get("mode"),
             "replay_duration_ms": int((time.time() - replay_started_at) * 1000),
+            "client_storage_write_failures": validated.get("client_storage_write_failures"),
+            "client_storage_last_error": validated.get("client_storage_last_error"),
         }
     )
 
-    # client_score is never trusted for scoring (the leaderboard always uses
-    # replay["score"] below, regardless of this) -- it exists purely to
-    # catch a divergence between what the player's device actually computed
-    # and what the server's independent replay computed, whether from a
-    # tampered client or a legitimate bug (this is how the two save/resume
-    # bugs fixed earlier this session were confirmed). Absent on an
-    # old, not-yet-updated client -- see validate_non_negative_number's
-    # "optional" field in input_validation.py.
+    # client_score/wave/lives are never trusted for scoring (the leaderboard
+    # always uses replay["score"] below, regardless of any of this) -- they
+    # exist purely to catch a divergence between what the player's device
+    # actually computed and what the server's independent replay computed,
+    # whether from a tampered client or a legitimate bug (this is how the
+    # two save/resume bugs fixed earlier this session were confirmed).
+    # Absent on an old, not-yet-updated client -- see
+    # validate_non_negative_number's "optional" field in input_validation.py.
     client_score = validated.get("client_score")
+    client_wave = validated.get("client_wave")
+    client_lives = validated.get("client_lives")
     server_score = replay.get("score")
+    server_wave = replay.get("wave")
+    server_lives = replay.get("lives")
+
+    score_diff = None
     if client_score is not None and server_score is not None:
         score_diff = abs(server_score - client_score)
-        if score_diff > SCORE_MISMATCH_THRESHOLD:
-            # A deliberately separate, distinctively-named log call (not
-            # folded into replay_completed above) so a CloudWatch metric
-            # filter can target just this line without matching every
-            # ordinary submission. logger.py's log() prints a Python tuple's
-            # repr(), not valid JSON -- the filter pattern must be a plain
-            # term match on "SCORE_MISMATCH", not a JSON-structured pattern.
-            log(
-                {
-                    "event": "SCORE_MISMATCH",
-                    "run_id": run_id,
-                    "seed": int(game["seed"]),
-                    "version": game_version,
-                    "display_name": validated["display_name"],
-                    "client_score": client_score,
-                    "server_score": server_score,
-                    "score_diff": score_diff,
-                    "tick_count": validated["tick_count"],
-                    "move_count": len(validated["input_log"]),
-                    "mode": replay.get("mode"),
-                }
-            )
+    score_mismatch = score_diff is not None and score_diff > SCORE_MISMATCH_THRESHOLD
+    # wave/lives are exact simulated-state values (not an accumulated float),
+    # so any difference at all -- unlike score's noise threshold -- means the
+    # replay's game state genuinely diverged from what the client played,
+    # independent of whatever the scoring formula did with it.
+    wave_mismatch = client_wave is not None and server_wave is not None and client_wave != server_wave
+    lives_mismatch = client_lives is not None and server_lives is not None and client_lives != server_lives
+
+    if score_mismatch or wave_mismatch or lives_mismatch:
+        # A deliberately separate, distinctively-named log call (not
+        # folded into replay_completed above) so a CloudWatch metric
+        # filter can target just this line without matching every
+        # ordinary submission. logger.py's log() prints a Python tuple's
+        # repr(), not valid JSON -- the filter pattern must be a plain
+        # term match on "SCORE_MISMATCH", not a JSON-structured pattern.
+        log(
+            {
+                "event": "SCORE_MISMATCH",
+                "run_id": run_id,
+                "seed": int(game["seed"]),
+                "version": game_version,
+                "display_name": validated["display_name"],
+                "client_score": client_score,
+                "server_score": server_score,
+                "score_diff": score_diff,
+                "client_wave": client_wave,
+                "server_wave": server_wave,
+                "client_lives": client_lives,
+                "server_lives": server_lives,
+                "tick_count": validated["tick_count"],
+                "move_count": len(validated["input_log"]),
+                "mode": replay.get("mode"),
+            }
+        )
+        # A second, distinctively-named log line carrying everything needed
+        # to replay this exact run offline (locally, against vendored/v<N>)
+        # and bisect the input_log to find the first tick where a live
+        # session and a from-scratch replay actually part ways -- without
+        # this, a mismatch is only ever visible in aggregate (the fields
+        # above), never directly reproducible. Kept separate from
+        # SCORE_MISMATCH itself so a metric filter/alarm on that line never
+        # has to parse a payload this size (input_log alone was ~35KB on the
+        # run that prompted this).
+        log(
+            {
+                "event": "SCORE_MISMATCH_REPLAY_DATA",
+                "run_id": run_id,
+                "seed": int(game["seed"]),
+                "version": game_version,
+                "tick_count": validated["tick_count"],
+                "canvas_width": validated["canvas_width"],
+                "canvas_height": validated["canvas_height"],
+                "input_log": validated["input_log"],
+            }
+        )
 
     # The server only trusts what its own replay produced -- never what the
     # client claims happened. A run still in progress (the replay somehow

@@ -9,6 +9,11 @@ const SOURCE_FILE_NAMES = [
   'enemy.js', 'powerup.js', 'boss.js', 'colors.js',
   'input.js', 'save.js', 'game.js',
 ];
+// Exported so cut-version.sh can read this as the single source of truth
+// for which files a version snapshot contains, instead of maintaining a
+// second, independently-typed-out copy of the same list that could
+// silently drift out of sync with what this Lambda actually loads.
+exports.SOURCE_FILE_NAMES = SOURCE_FILE_NAMES;
 
 // Each API version's snapshot is loaded (and its source text cached) lazily,
 // the first time that version is actually requested -- a warm container

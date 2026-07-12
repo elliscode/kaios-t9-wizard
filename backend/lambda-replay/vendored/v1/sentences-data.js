@@ -22,7 +22,6 @@ var SENTENCES_BY_TIER = {
     "miss elizabeth bennet",
     "all thats nonsense",
     "behold the man",
-    "who aint a slave",
     "what is his name",
     "i am all astonishment",
     "weve lost the way",

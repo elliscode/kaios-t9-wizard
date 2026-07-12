@@ -3,14 +3,36 @@ var SaveGame = (function () {
   var CHUNK_KEY_PREFIX = 't9wizard.save.chunk.';
   var SAVE_VERSION = 1;
 
+  // In-memory only (never itself dependent on localStorage, since that's the
+  // thing that might be failing) -- lets a caller notice a write failed
+  // instead of the try/catch below silently absorbing it forever. See
+  // game.js's chunk-flush block for the one place a failure here actually
+  // changes behavior (a failed chunk write must never be treated as flushed);
+  // everywhere else this is purely diagnostic, reported alongside
+  // client_score at submit time.
+  var storageFailureCount = 0;
+  var lastStorageError = null;
+
+  function recordStorageFailure(e) {
+    storageFailureCount++;
+    lastStorageError = (e && e.name) ? (e.name + ': ' + e.message) : String(e);
+  }
+
+  function getStorageDiagnostics() {
+    return { failureCount: storageFailureCount, lastError: lastStorageError };
+  }
+
   // Only PLAYING/BOSS/PAUSED carry anything worth resuming — MENU has
   // nothing in progress, and GAMEOVER/WIN are explicitly cleared elsewhere.
   // TRANSITION is deliberately never saved (it's a brief ~2s interstitial;
   // closing the app in that exact window just resumes from the last real
   // checkpoint instead, which is an acceptable, rare edge case).
+  // Returns true if the save either succeeded or legitimately wasn't needed
+  // (wrong mode to persist), false only on an actual write failure -- lets a
+  // caller distinguish "nothing to do" from "tried and failed" if it cares.
   function save(state) {
     var resumeMode = state.mode === 'paused' ? state.pausedFromMode : state.mode;
-    if (resumeMode !== 'playing' && resumeMode !== 'boss') return;
+    if (resumeMode !== 'playing' && resumeMode !== 'boss') return true;
 
     var payload = {
       saveVersion: SAVE_VERSION,
@@ -74,9 +96,14 @@ var SaveGame = (function () {
 
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      return true;
     } catch (e) {
       // Storage can fail (quota, private-browsing mode, disabled entirely) —
-      // saving is a nice-to-have convenience, never allowed to break the game.
+      // saving is a nice-to-have convenience, never allowed to break the
+      // game -- but the failure itself is recorded (see
+      // getStorageDiagnostics) rather than vanishing entirely.
+      recordStorageFailure(e);
+      return false;
     }
   }
 
@@ -85,12 +112,20 @@ var SaveGame = (function () {
   // exactly once, at a fixed size, and never touched again, which is what
   // actually keeps save()'s cost constant regardless of how far into the
   // run the player already is.
+  // Returns true/false the same way save() does -- the caller (game.js's
+  // chunk-flush block) depends on this to know whether it's safe to treat
+  // the chunk as durably flushed.
   function saveLogChunk(chunkNumber, chunk) {
     try {
       window.localStorage.setItem(CHUNK_KEY_PREFIX + chunkNumber, JSON.stringify(chunk));
+      return true;
     } catch (e) {
       // Storage can fail (quota, private-browsing mode, disabled entirely) —
-      // saving is a nice-to-have convenience, never allowed to break the game.
+      // saving is a nice-to-have convenience, never allowed to break the
+      // game -- but the failure itself is recorded (see
+      // getStorageDiagnostics) rather than vanishing entirely.
+      recordStorageFailure(e);
+      return false;
     }
   }
 
@@ -181,5 +216,5 @@ var SaveGame = (function () {
     }
   }
 
-  return { save: save, saveLogChunk: saveLogChunk, load: load, clear: clear };
+  return { save: save, saveLogChunk: saveLogChunk, load: load, clear: clear, getStorageDiagnostics: getStorageDiagnostics };
 })();
