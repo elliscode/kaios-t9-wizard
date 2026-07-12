@@ -5,7 +5,7 @@ var Render = (function () {
   // Hardcoded, not derived from index.html's ?v= cache-busting query params --
   // bump this by hand alongside those on each release (a project-wide
   // find/replace already covers every ?v=X.Y.Z occurrence at once).
-  var GAME_VERSION = '3.1.4';
+  var GAME_VERSION = '3.1.5';
 
   function renderPlayField(ctx, state) {
     // Brief dark-red flash on a real (non-benign) mistake -- see

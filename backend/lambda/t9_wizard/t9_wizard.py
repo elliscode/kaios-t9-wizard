@@ -25,6 +25,11 @@ from t9_wizard.utils import (
 )
 from t9_wizard.input_validation import validate_schema, SUBMIT_SCHEMA, MODERATE_NAME_SCHEMA
 
+# Anything bigger than ordinary floating-point noise between two independent
+# computations of the same scoring formula -- see the SCORE_MISMATCH log in
+# submit_route.
+SCORE_MISMATCH_THRESHOLD = 1
+
 
 def start_route(event, version):
     # 32 bits, matching the frontend's Rng.seed(s) contract exactly (mulberry32
@@ -105,6 +110,41 @@ def submit_route(event, version):
             "replay_duration_ms": int((time.time() - replay_started_at) * 1000),
         }
     )
+
+    # client_score is never trusted for scoring (the leaderboard always uses
+    # replay["score"] below, regardless of this) -- it exists purely to
+    # catch a divergence between what the player's device actually computed
+    # and what the server's independent replay computed, whether from a
+    # tampered client or a legitimate bug (this is how the two save/resume
+    # bugs fixed earlier this session were confirmed). Absent on an
+    # old, not-yet-updated client -- see validate_non_negative_number's
+    # "optional" field in input_validation.py.
+    client_score = validated.get("client_score")
+    server_score = replay.get("score")
+    if client_score is not None and server_score is not None:
+        score_diff = abs(server_score - client_score)
+        if score_diff > SCORE_MISMATCH_THRESHOLD:
+            # A deliberately separate, distinctively-named log call (not
+            # folded into replay_completed above) so a CloudWatch metric
+            # filter can target just this line without matching every
+            # ordinary submission. logger.py's log() prints a Python tuple's
+            # repr(), not valid JSON -- the filter pattern must be a plain
+            # term match on "SCORE_MISMATCH", not a JSON-structured pattern.
+            log(
+                {
+                    "event": "SCORE_MISMATCH",
+                    "run_id": run_id,
+                    "seed": int(game["seed"]),
+                    "version": game_version,
+                    "display_name": validated["display_name"],
+                    "client_score": client_score,
+                    "server_score": server_score,
+                    "score_diff": score_diff,
+                    "tick_count": validated["tick_count"],
+                    "move_count": len(validated["input_log"]),
+                    "mode": replay.get("mode"),
+                }
+            )
 
     # The server only trusts what its own replay produced -- never what the
     # client claims happened. A run still in progress (the replay somehow

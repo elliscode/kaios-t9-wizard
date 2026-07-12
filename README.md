@@ -191,7 +191,7 @@ No known issues at this time.
 5. Press **1** during active gameplay. Confirm the game pauses (a "PAUSED" overlay appears, falling blocks freeze). Press **1** again and confirm gameplay resumes from where it left off.
 6. Continue playing (allowing words to fall through, if desired, to end the run quickly) until all lives are lost. Confirm a "GAME OVER" screen appears showing the final score and the world/wave reached.
 7. Press **1** from the Game Over screen. Confirm you see an ad.
-8. If you scored over 1000 points, enter your name in the leaderboard, you rname wil lnot appear immediately as it requires manual approval to avoid bad words.
+8. If you scored over 1000 points, enter your name in the leaderboard. Note: your name will not appear immediately, as it requires manual approval to avoid bad words, but your score will be added with a name like "Player NNNN" until it is approved
 9. Press 1 and Confirm the app returns to the main menu.
 10. From the main menu, press **\*** . Confirm a leaderboard screen loads (showing either a list of scores or a "No scores yet" / loading message, depending on network connectivity) — this should never crash the app.
 11. From the leaderboard screen, press **1** to return to the main menu.

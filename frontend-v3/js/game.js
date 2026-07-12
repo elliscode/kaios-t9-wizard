@@ -923,7 +923,11 @@ var Game = (function () {
       tick_count: state.tickCount,
       canvas_width: Layout.CANVAS_WIDTH,
       canvas_height: Layout.CANVAS_HEIGHT,
-      input_log: fullInputLog()
+      input_log: fullInputLog(),
+      // Never trusted for scoring (the server's own replay is the only
+      // source of truth for that) -- sent purely so the backend can flag a
+      // client/server mismatch, whether from a bug or a tampered client.
+      client_score: state.score
     }).then(function (result) {
       if (state !== thisState) return;
       if (result.ok && result.body && result.body.score != null) {

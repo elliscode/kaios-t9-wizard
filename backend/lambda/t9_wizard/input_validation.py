@@ -47,6 +47,17 @@ def validate_non_negative_int(value):
     return None
 
 
+# Scores are float-valued (unlike tick_count/canvas dimensions) -- same
+# bool-exclusion guard as validate_non_negative_int, since bool is a
+# subclass of int in Python.
+def validate_non_negative_number(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and value >= 0:
+        return value
+    return None
+
+
 def validate_schema(value, schema):
     if schema["type"] == list or schema["type"] == dict:
         if not isinstance(value, schema["type"]):
@@ -92,6 +103,11 @@ SUBMIT_SCHEMA = {
         {"type": validate_non_negative_int, "name": "tick_count"},
         {"type": validate_non_negative_int, "name": "canvas_width"},
         {"type": validate_non_negative_int, "name": "canvas_height"},
+        # Optional -- an already-installed, not-yet-updated client (this is
+        # a KaiOS app; store distribution lags a backend deploy) won't send
+        # this at all. validate_schema's optional handling already treats a
+        # genuinely-absent field as fine, no error.
+        {"type": validate_non_negative_number, "name": "client_score", "optional": True},
         {
             "type": list,
             "name": "input_log",
