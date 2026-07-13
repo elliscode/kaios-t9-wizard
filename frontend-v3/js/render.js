@@ -5,7 +5,7 @@ var Render = (function () {
   // Hardcoded, not derived from index.html's ?v= cache-busting query params --
   // bump this by hand alongside those on each release (a project-wide
   // find/replace already covers every ?v=X.Y.Z occurrence at once).
-  var GAME_VERSION = '3.1.8';
+  var GAME_VERSION = '3.1.9';
 
   function renderPlayField(ctx, state) {
     // Brief dark-red flash on a real (non-benign) mistake -- see
@@ -306,12 +306,18 @@ var Render = (function () {
     var wiw = Game.waveInWorld(state.wave);
     ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
-    // A game over always shows an ad before continuing -- win never does
-    // (see renderWinOverlay/handleMenuKey) -- so the second line differs
-    // depending on what happens after the ad closes.
+    // A submittable run goes straight to name entry -- the ad it still owes
+    // is deferred until after the score is safely submitted (see
+    // pendingGameOverAd/handleMenuKey), so this screen no longer mentions
+    // one. A non-submittable run has no leaderboard step to protect, so it
+    // keeps showing the ad immediately, same as before.
     var submittable = Game.isRunSubmittable(state);
-    ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
-    ctx.fillText(submittable ? 'submit your score' : 'return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 46);
+    if (submittable) {
+      ctx.fillText('Press 1 to submit your score', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    } else {
+      ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+      ctx.fillText('return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 46);
+    }
     ctx.textAlign = 'left';
   }
 
@@ -405,7 +411,15 @@ var Render = (function () {
       ctx.font = '10px monospace';
       ctx.fillText('Score: ' + Math.floor(state.submitResult.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     }
-    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    // A gameover-originated submission still owes its ad here (see
+    // pendingGameOverAd/handleMenuKey) -- a win-originated one never set
+    // the flag, so it keeps the plain "return to main menu" prompt.
+    if (state.pendingGameOverAd) {
+      ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+      ctx.fillText('return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 46);
+    } else {
+      ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
+    }
     ctx.textAlign = 'left';
   }
 

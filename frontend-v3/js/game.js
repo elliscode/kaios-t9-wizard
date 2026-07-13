@@ -14,9 +14,11 @@ var Game = (function () {
     // A confirmation step between PAUSED and actually quitting -- see
     // handleQuitKey -- so an accidental '*' press can't abandon a run.
     CONFIRM_QUIT: 'confirm_quit',
-    // Gated interstitial ad -- see showGatedAd -- entered from GAMEOVER or
-    // CONFIRM_QUIT, never from WIN. Sim is already stopped in both source
-    // states, so nothing needs to "unwrap" through this mode the way
+    // Gated interstitial ad -- see showGatedAd -- entered from a
+    // non-submittable GAMEOVER, CONFIRM_QUIT, or (for a submittable
+    // GAMEOVER) from SUBMITTED once the score is safely in -- see
+    // pendingGameOverAd. Never from WIN. Sim is already stopped in every
+    // source state, so nothing needs to "unwrap" through this mode the way
     // PAUSED/CONFIRM_QUIT unwrap to the frozen sim underneath.
     AD: 'ad'
   };
@@ -146,6 +148,12 @@ var Game = (function () {
       runStartedAt: null,
       submitResult: null,
       submitError: null,
+      // Set when entering NAME_ENTRY from a submittable GAMEOVER (see
+      // handleMenuKey) -- read once, at SUBMITTED, to decide whether the
+      // gated ad still owed for this run happens now (gameover) or not at
+      // all (a win never sets this). Never persisted -- NAME_ENTRY/
+      // SUBMITTING/SUBMITTED are never save-eligible states.
+      pendingGameOverAd: false,
       leaderboardEntries: null,
       leaderboardError: null,
       score: 0,
@@ -811,18 +819,30 @@ var Game = (function () {
         returnToMenu();
       }
     } else if (state.mode === STATE.GAMEOVER) {
-      showGatedAd(function () {
-        // A game over is a legitimate, submittable result too (see
-        // submit_route) -- not just a real win. Same gate either way: a
-        // non-'ok' submissionStatus (no run_id, boss-rush, expired, or under
-        // MIN_SUBMITTABLE_SCORE) just returns to the menu instead.
-        if (isRunSubmittable(state)) {
-          enterNameEntry();
-        } else {
-          returnToMenu();
-        }
-      });
-    } else if (state.mode === STATE.SUBMITTED || state.mode === STATE.LEADERBOARD) {
+      // A game over is a legitimate, submittable result too (see
+      // submit_route) -- not just a real win. A submittable run goes
+      // straight to name entry, no ad gate in front of it -- the ad owed
+      // for losing is deferred until after the score is safely submitted
+      // (see pendingGameOverAd/the SUBMITTED branch below), so an ad
+      // interaction that hijacks/closes the app can cost at most the ad
+      // impression, never the player's leaderboard entry (this used to gate
+      // entry into name entry itself, which could and did lose real
+      // submissions this way). A non-submittable run has no leaderboard
+      // step to protect, so it's unchanged: ad immediately, then the menu.
+      if (isRunSubmittable(state)) {
+        state.pendingGameOverAd = true;
+        enterNameEntry();
+      } else {
+        showGatedAd(returnToMenu);
+      }
+    } else if (state.mode === STATE.SUBMITTED) {
+      if (state.pendingGameOverAd) {
+        state.pendingGameOverAd = false;
+        showGatedAd(returnToMenu);
+      } else {
+        returnToMenu();
+      }
+    } else if (state.mode === STATE.LEADERBOARD) {
       returnToMenu();
     } else if (state.mode === STATE.PAUSED) {
       resumeGame();

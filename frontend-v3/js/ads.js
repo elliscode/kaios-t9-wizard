@@ -1,9 +1,13 @@
-// Gated interstitial ad -- shown only at two points (see game.js's
-// showGatedAd, called from handleMenuKey's GAMEOVER and CONFIRM_QUIT
-// branches): losing a run, or confirming a quit. Deliberately never shown
-// on a win -- losing is "punished" with an ad, winning isn't. Ads are a
-// monetization nice-to-have, exactly like SaveGame's localStorage calls or
-// AudioEngine's sound -- never allowed to block or break the game.
+// Gated interstitial ad -- shown only at three points (see game.js's
+// showGatedAd, called from handleMenuKey's GAMEOVER, SUBMITTED, and
+// CONFIRM_QUIT branches): a non-submittable game over (immediately, no
+// leaderboard step to protect), a submittable one (deferred until after
+// SUBMITTED, so an ad that hijacks/closes the app can never cost the
+// player their leaderboard entry -- see pendingGameOverAd), or confirming
+// a quit. Deliberately never shown on a win -- losing is "punished" with
+// an ad, winning isn't. Ads are a monetization nice-to-have, exactly like
+// SaveGame's localStorage calls or AudioEngine's sound -- never allowed to
+// block or break the game.
 var AdsEngine = (function () {
   // `publisher` reused from the same developer's other KaiOS app
   // (kaios-shared-list) on the assumption it's one shared publisher account
