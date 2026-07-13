@@ -558,11 +558,18 @@ var Game = (function () {
         state.boss = null;
         SaveGame.clear();
         if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.GAME_OVER);
-      } else {
-        spawnBossSentence(boss);
-        SaveGame.save(state);
+        return;
       }
+      spawnBossSentence(boss);
     }
+    // Unconditional, every tick -- mirrors checkCollisions()'s identical
+    // PLAYING-mode pattern. Previously this only saved inside the "still
+    // alive after a hit" branch above, so a boss sentence just falling with
+    // no hit yet (and no segment completed either -- see
+    // handleBossSentenceCompleted's own save) went completely unsaved,
+    // unlike PLAYING mode where checkCollisions() here keeps the checkpoint
+    // within ~1 tick of live at all times regardless of what's happening.
+    SaveGame.save(state);
   }
 
   function handleBossDefeated() {
