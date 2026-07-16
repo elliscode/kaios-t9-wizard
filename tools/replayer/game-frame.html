@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T9 Wizard Replayer — game frame</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; }
+  #game { display: block; }
+</style>
+</head>
+<body>
+<!-- Loaded inside an iframe fixed at exactly 240x294 by the parent page
+     (tools/replayer/index.html), regardless of the outer browser window
+     size -- layout.js reads window.innerWidth/innerHeight, which inside an
+     iframe reflects the iframe's own viewport, not the outer page's. That's
+     what lets the parent page have extra room for controls/keypad without
+     ever changing the canvas's effective resolution (which would shift
+     Rng.next()-driven spawn positions away from the original run). -->
+<canvas id="game" width="240" height="294"></canvas>
+
+<script>
+  // Stub backend -- resolves Api.start() with the run's own recorded seed
+  // instead of hitting the real API, so Game.beginRun() boots a live,
+  // normally-rendering session under the exact seed we want to replay.
+  // submit/leaderboard are never exercised by this tool.
+  var Api = {
+    start: function () {
+      var d = window.__REPLAY_DATA__;
+      return Promise.resolve({ ok: true, body: { run_id: 'replay-local', seed: d.seed } });
+    },
+    submit: function () { return Promise.reject(new Error('replayer: Api.submit should never be called')); },
+    leaderboard: function () { return Promise.reject(new Error('replayer: Api.leaderboard should never be called')); }
+  };
+
+  // Version-pinned game logic comes from the frozen vendored snapshot (same
+  // 14 files cut-version.sh/backend/lambda-replay/index.js's SOURCE_FILE_NAMES
+  // already treat as canonical) for true replay fidelity. render.js/audio.js/
+  // sfx.js aren't part of that versioned snapshot (rendering/sound don't
+  // affect scoring), so the current frontend-v3 copies are used -- strictly
+  // better (bug fixes), and real Web Audio SFX works here since this is a
+  // live browser, not a video export. Root-relative paths (this page is
+  // served over http://localhost by replay.js, not opened as file://) so
+  // they resolve the same regardless of iframe nesting.
+  function buildScriptList(replayData) {
+    var base = '/backend/lambda-replay/vendored/v' + replayData.version + '/';
+    var gameFiles = [
+      'layout.js', 'rng.js', 't9.js', 'words-data.js', 'sentences-data.js',
+      'words.js', 'sentences.js', 'enemy.js', 'powerup.js', 'boss.js',
+      'colors.js', 'input.js', 'save.js', 'game.js'
+    ];
+    var list = gameFiles.map(function (f) { return base + f; });
+    list.push('/frontend-v3/js/render.js');
+    list.push('/frontend-v3/js/audio.js');
+    list.push('/frontend-v3/js/sfx.js');
+    list.push('/tools/replayer/player.js');
+    return list;
+  }
+
+  // Plain global-defining scripts (no module system, no defer/async) --
+  // load strictly in order, one at a time, exactly like a normal <script>
+  // tag list would, since later files reference earlier ones as globals.
+  function loadScriptsSequentially(paths, onDone) {
+    var i = 0;
+    function next() {
+      if (i >= paths.length) { onDone(); return; }
+      var s = document.createElement('script');
+      s.src = paths[i++];
+      s.onload = next;
+      s.onerror = function () { console.error('Replayer: failed to load ' + s.src); };
+      document.body.appendChild(s);
+    }
+    next();
+  }
+
+  loadScriptsSequentially(buildScriptList(window.__REPLAY_DATA__), function () {
+    window.ReplayerPlayer.start(window.__REPLAY_DATA__);
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>T9 Wizard Replayer</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #111;
+    color: #eee;
+    font-family: monospace;
+  }
+  #app {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    padding: 16px;
+  }
+
+  /* --- Left: playback controls --- */
+  #controls {
+    width: 220px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #controls h1 {
+    font-size: 13px;
+    margin: 0 0 4px 0;
+    color: #9f9;
+  }
+  #controls button, #controls select {
+    font-family: inherit;
+    font-size: 12px;
+    background: #222;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 6px 8px;
+    cursor: pointer;
+  }
+  #controls button:hover, #controls select:hover { background: #333; }
+  #controls button:disabled, #controls select:disabled { opacity: 0.4; cursor: default; }
+  #playRow { display: flex; gap: 8px; }
+  #scrubber { width: 100%; }
+  #readout { font-size: 11px; line-height: 1.6; color: #aaa; white-space: pre; }
+  #seekingIndicator {
+    font-size: 11px;
+    color: #fc5;
+    visibility: hidden;
+  }
+  #seekingIndicator.active { visibility: visible; }
+
+  /* --- Right: canvas (in an iframe, fixed 240x294) + keypad, side by side
+     -- kept in one row (rather than keypad below) so a screen recording of
+     just this area shows gameplay and keystrokes together without needing
+     extra vertical space. --- */
+  #stage { flex: none; display: flex; flex-direction: row; align-items: flex-start; gap: 16px; }
+  #gameFrame { width: 240px; height: 294px; border: 1px solid #444; }
+
+  #keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 44px);
+    grid-template-rows: repeat(4, 40px);
+    gap: 6px;
+  }
+  .key {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #222;
+    border: 1px solid #555;
+    border-radius: 6px;
+    font-size: 15px;
+    color: #ccc;
+    user-select: none;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+  }
+  .key.pressed {
+    background: #3fae3f;
+    color: #fff;
+    transition: none;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="controls">
+    <h1>T9 Wizard Replayer</h1>
+    <div id="playRow">
+      <button id="playPauseBtn">Play</button>
+      <select id="speedSelect">
+        <option value="1">1x</option>
+        <option value="2">2x</option>
+        <option value="4">4x</option>
+        <option value="8">8x</option>
+      </select>
+    </div>
+    <input id="scrubber" type="range" min="0" max="0" value="0" step="1">
+    <div id="seekingIndicator">Seeking&hellip;</div>
+    <div id="readout"></div>
+  </div>
+
+  <div id="stage">
+    <!-- The game only ever sees this iframe's own 240x294 viewport (see
+         game-frame.html) -- letting the outer window be whatever size fits
+         the controls/keypad alongside it without affecting the canvas's
+         effective resolution (which Rng.next()-driven spawn positions
+         depend on). -->
+    <iframe id="gameFrame" src="/tools/replayer/game-frame.html"></iframe>
+    <!-- Static 4x3 keypad; player.js (running inside the iframe) calls back
+         into flashKey() below whenever the replayed input_log dispatches
+         that digit via Game.handleDigitKey. 1/0/*/# render for a complete,
+         authentic keypad but never flash -- the real game only ever sends
+         '2'-'9' as gameplay input. -->
+    <div id="keypad">
+      <div class="key" data-key="1">1</div>
+      <div class="key" data-key="2">2</div>
+      <div class="key" data-key="3">3</div>
+      <div class="key" data-key="4">4</div>
+      <div class="key" data-key="5">5</div>
+      <div class="key" data-key="6">6</div>
+      <div class="key" data-key="7">7</div>
+      <div class="key" data-key="8">8</div>
+      <div class="key" data-key="9">9</div>
+      <div class="key" data-key="*">*</div>
+      <div class="key" data-key="0">0</div>
+      <div class="key" data-key="#">#</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Outer-page half of the UI: owns the control-bar/keypad DOM and forwards
+  // user interaction across the frame boundary into the iframe's
+  // ReplayerPlayer (the simulation/pump driver -- see player.js). The
+  // iframe calls back into window.ReplayerPlayerUI for anything that needs
+  // to touch this page's DOM (keypad flashes, the tick/score readout).
+  (function () {
+    var els = {
+      playPauseBtn: document.getElementById('playPauseBtn'),
+      speedSelect: document.getElementById('speedSelect'),
+      scrubber: document.getElementById('scrubber'),
+      seekingIndicator: document.getElementById('seekingIndicator'),
+      readout: document.getElementById('readout'),
+      gameFrame: document.getElementById('gameFrame')
+    };
+
+    function player() {
+      return els.gameFrame.contentWindow.ReplayerPlayer;
+    }
+
+    els.scrubber.max = String((window.__REPLAY_DATA__ && window.__REPLAY_DATA__.tick_count) || 0);
+
+    els.playPauseBtn.addEventListener('click', function () {
+      var p = player();
+      if (!p) return;
+      if (p.isPlaying()) p.pause(); else p.play();
+    });
+    els.speedSelect.addEventListener('change', function () {
+      var p = player();
+      if (p) p.setSpeed(parseInt(els.speedSelect.value, 10));
+    });
+    // Live label while dragging; only actually re-simulate on release
+    // ('change', which fires on mouseup/keyup) -- re-simulating on every
+    // intermediate 'input' event would make dragging feel awful on a long run.
+    els.scrubber.addEventListener('input', function () {
+      els.readout.textContent = 'Seek to tick ' + els.scrubber.value + '…';
+    });
+    els.scrubber.addEventListener('change', function () {
+      var p = player();
+      if (p) p.seek(parseInt(els.scrubber.value, 10));
+    });
+
+    window.ReplayerPlayerUI = {
+      flashKey: function (key) {
+        var el = document.querySelector('.key[data-key="' + key + '"]');
+        if (!el) return;
+        el.classList.remove('pressed');
+        void el.offsetWidth; // force reflow so re-adding the class restarts the CSS transition
+        el.classList.add('pressed');
+        setTimeout(function () { el.classList.remove('pressed'); }, 150);
+      },
+      setPlaying: function (playing) {
+        els.playPauseBtn.textContent = playing ? 'Pause' : 'Play';
+      },
+      setSeeking: function (active) {
+        els.seekingIndicator.classList.toggle('active', active);
+        els.playPauseBtn.disabled = active;
+        els.scrubber.disabled = active;
+      },
+      updateState: function (state, tickCountTotal) {
+        els.scrubber.value = String(state.tickCount);
+        els.readout.textContent =
+          'Tick:  ' + state.tickCount + ' / ' + tickCountTotal + '\n' +
+          'Mode:  ' + state.mode + '\n' +
+          'Score: ' + Math.floor(state.score) + '\n' +
+          'Wave:  ' + state.wave + '   Lives: ' + state.lives;
+      }
+    };
+  })();
+</script>
+</body>
+</html>

@@ -2,3 +2,4 @@
 .DS_Store
 *.zip
 log*.json
+tools/replayer/node_modules/

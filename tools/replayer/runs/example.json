@@ -1,0 +1,9 @@
+{
+  "_comment": "Synthetic smoke-test fixture, not a real recorded run -- generated to verify the decode/launch/playback pipeline end-to-end without depending on a possibly-truncated pasted value. Drop in a real champion-run JSON (seed/canvas_width/canvas_height/tick_count/input_log_packed, matching get_champion_run's shape) here to replay an actual run.",
+  "version": 1,
+  "seed": 2271276322,
+  "canvas_width": 240,
+  "canvas_height": 294,
+  "tick_count": 210,
+  "input_log_packed": "AwAAADIHAAAAMwwAAAA0EgAAADUZAAAANhwAAAA3IAAAADglAAAAOSsAAAAyMgAAADM1AAAANDkAAAA1PgAAADZEAAAAN0sAAAA4TgAAADlSAAAAMlcAAAAzXQAAADRkAAAANWcAAAA2awAAADdwAAAAOHYAAAA5fQAAADKAAAAAM4QAAAA0iQAAADWPAAAANpYAAAA3mQAAADidAAAAOaIAAAAyqAAAADOvAAAANLIAAAA1tgAAADa7AAAAN8EAAAA4yAAAADk="
+}

@@ -1,0 +1,12 @@
+{
+  "name": "t9-wizard-replayer",
+  "private": true,
+  "description": "Local-only interactive replay viewer for T9 Wizard runs. Not part of the shipped app or the versioned replay engine -- see README.md.",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node replay.js"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}
