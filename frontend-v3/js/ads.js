@@ -18,11 +18,11 @@ var AdsEngine = (function () {
   var KAIADS_APP = 't9wizard';
   var KAIADS_SLOT = 'gameover';
 
-  // Deliberately restricted to this one hostname -- a controlled local
-  // testing target, not the real store-released app's origin. TODO:
-  // revisit before/when doing real IMEI-registered device testing on the
-  // KaiOS store, since as written this means the ad never fires outside
-  // this specific test setup.
+  // This is the app's actual real-device origin too -- packaged KaiOS apps
+  // installed from the store run under this same hostname, not just local
+  // dev/testing -- so this restricts ad requests to legitimate app
+  // installs (this origin) rather than, say, this same code being loaded
+  // from some other arbitrary host.
   var ALLOWED_HOSTNAME = 't9wizard.localhost';
 
   // How long showAd() will wait for the SDK's own 'close' event before

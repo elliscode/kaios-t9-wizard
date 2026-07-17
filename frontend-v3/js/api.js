@@ -10,7 +10,16 @@
 // shape, so every call site in game.js only ever needs a single .then().
 var Api = (function () {
   var BASE_URL = 'https://api.t9-wizard.elliscode.com/api/v1';
-  var TIMEOUT_MS = 8000;
+  // 29s -- API Gateway's own hard integration timeout ceiling (not
+  // configurable higher), so there's no point aborting client-side any
+  // sooner than the backend itself would ever actually take. The previous
+  // 8s value was too aggressive: a double cold-start (the API Lambda and
+  // the replay Lambda it synchronously invokes both cold at once) plus real
+  // mobile network latency could legitimately exceed 8s even though the
+  // backend went on to complete the request successfully -- the player saw
+  // "Score submission failed" for a run that was actually scored and on
+  // the leaderboard the whole time.
+  var TIMEOUT_MS = 29000;
 
   function request(path, options) {
     var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;

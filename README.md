@@ -24,7 +24,8 @@ Colored blocks carrying a word fall from the top of the screen toward a grey pla
 ```
 frontend-v3/
   index.html              Canvas + script tags (load order matters)
-  manifest.webapp         Minimal KaiOS app manifest
+  manifest.webmanifest    Minimal KaiOS app manifest (W3C manifest fields + a b2g_features
+                           extension block for KaiOS-specific ones like version/permissions)
   css/style.css           Canvas fills the viewport exactly (no letterboxing); also styles
                            the real <input> used for leaderboard name entry
   js/
@@ -64,7 +65,7 @@ backend/
 
 No build step, no dependencies — just open `frontend-v3/index.html` directly in a browser (`file://` works fine for loading and playing; all game data is a plain script include, not fetched). The backend calls (`/start`, `/submit`, `/leaderboard`) do use `fetch()`, though, which a `file://` origin can't reach — opened this way, the game plays fully offline (a locally-generated seed instead of a server-issued one, and no leaderboard submission). Serve the directory over `http(s)://` for the full round trip.
 
-For on-device KaiOS testing, sideload the directory as a packaged app using `manifest.webapp`.
+For on-device KaiOS testing, sideload the directory as a packaged app using `manifest.webmanifest` (see `frontend-v3/kaios-release.sh` for the exact zip contents the store submission itself uses).
 
 Controls: digit keys **2-9** to type, **1** to start/pause/resume (and, from a game-over or win screen with a submittable run, to enter your name and submit your score — or just to return to the main menu if it isn't submittable; pressing it again from the main menu starts a new run), **\*** from the main menu for boss rush (see above), **0** from the main menu to view the leaderboard.
 
