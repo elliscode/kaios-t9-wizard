@@ -8,7 +8,6 @@ from decimal import Decimal
 from urllib.parse import parse_qsl
 
 import boto3
-from botocore.exceptions import ClientError
 
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from .logger import log
@@ -235,8 +234,8 @@ def create_leaderboard_entry(run_id, display_name, score, version):
     # submitted name sits in a separate moderation queue (see
     # create_pending_name/approve_pending_name/deny_pending_name) until an
     # admin approves it. The real name is never written onto this record at
-    # all, so there's nothing here that could accidentally leak through
-    # get_leaderboard's full-record response before it's been reviewed.
+    # all, so there's nothing here that could accidentally leak to a client
+    # before it's been reviewed.
     # A name with a prior decision (see get_name_decision) skips that queue
     # entirely: previously approved posts the real name immediately;
     # previously denied still posts (a rejected *name* isn't a reason to
@@ -246,13 +245,11 @@ def create_leaderboard_entry(run_id, display_name, score, version):
     python_data = {
         "key1": f"leaderboard#v{version}",
         "key2": key2,
-        "run_id": run_id,
         "display_name": display_name if decision is True else f"Player {secrets.randbelow(10000)}",
         # DynamoDB's TypeSerializer rejects native float outright ("use
         # Decimal instead") -- str(score) first avoids binary-float
         # imprecision artifacts that Decimal(score) directly would carry in.
         "score": Decimal(str(score)),
-        "submitted_at": int(time.time()),
     }
     dynamo.put_item(
         TableName=TABLE_NAME,
@@ -284,15 +281,16 @@ def get_leaderboard(version, limit=LEADERBOARD_LIMIT_DEFAULT):
     ]
 
 
-# --- Champion run recording -------------------------------------------------
-# One record per version holding the full seed/input_log/tickCount/canvas
-# dimensions of the current highest-scoring run -- everything Game.replayRun
-# needs to deterministically regenerate that run frame-by-frame later (e.g.
-# for an offline "watch the season's winner" recording tool). Deliberately
-# NOT the same thing as a leaderboard entry (score + display_name only) --
-# this is meant to be rare (overwritten only when beaten) and comparatively
-# large, so it lives as its own record type rather than bloating every
-# leaderboard row with replay data nobody but the eventual #1 needs.
+# --- Leaderboard replay-log companion records -------------------------------
+# One record per submitted run holding the full seed/input_log/tickCount/
+# canvas dimensions -- everything Game.replayRun needs to deterministically
+# regenerate that run frame-by-frame later (for a future replay-serving
+# endpoint, not built yet). Deliberately NOT stored on the public leaderboard
+# entry itself (score + display_name only) -- key1 is
+# f"leaderboard#v<N>#log", a different partition from f"leaderboard#v<N>", so
+# get_leaderboard's Query (which only ever asks for the latter) never reads
+# these items at all, not even to discard them. key2 matches the paired
+# leaderboard entry's key2 exactly, so the two rows address as a pair.
 
 # {tick: uint32, key: uint8} per entry, little-endian -- packed instead of
 # storing input_log as-is because raw JSON runs surprisingly large (a real
@@ -316,57 +314,24 @@ def unpack_input_log(packed):
     return entries
 
 
-def save_champion_run(version, run_id, display_name, score, seed, input_log, tick_count, canvas_width, canvas_height):
-    # key1 is unscoped by version (unlike leaderboard#v<N>) so a single
-    # Query on key1="champion" can list every season's champion at once --
-    # there's no need to sort/range-query within a version, since there's
-    # only ever one item per version, so key2 is just the version itself.
+def create_leaderboard_log(run_id, version, key2, seed, input_log, tick_count, canvas_width, canvas_height):
     python_data = {
-        "key1": "champion",
-        "key2": f"v{version}",
-        "version": version,
+        "key1": f"leaderboard#v{version}#log",
+        "key2": key2,
         "run_id": run_id,
-        "display_name": display_name,
-        "score": Decimal(str(score)),
         "seed": seed,
         "tick_count": tick_count,
         "canvas_width": canvas_width,
         "canvas_height": canvas_height,
         "move_count": len(input_log),
         "input_log_packed": pack_input_log(input_log),
-        "recorded_at": int(time.time()),
+        "submitted_at": int(time.time()),
     }
-    try:
-        dynamo.put_item(
-            TableName=TABLE_NAME,
-            Item=python_obj_to_dynamo_obj(python_data),
-            # Atomic compare-and-swap in a single call -- no read-then-write
-            # race window between two near-simultaneous submissions each
-            # checking "am I the new champion?". A strictly-lower-or-absent
-            # existing score is required to overwrite; a tie keeps whichever
-            # run got there first.
-            ConditionExpression="attribute_not_exists(score) OR score < :newScore",
-            ExpressionAttributeValues=python_obj_to_dynamo_obj({":newScore": Decimal(str(score))}),
-        )
-        return True
-    except ClientError as e:
-        if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
-            return False  # an existing champion already has a higher (or equal) score
-        raise
-
-
-def get_champion_run(version):
-    result = dynamo.get_item(
-        Key=python_obj_to_dynamo_obj({"key1": "champion", "key2": f"v{version}"}),
+    dynamo.put_item(
         TableName=TABLE_NAME,
+        Item=python_obj_to_dynamo_obj(python_data),
     )
-    if "Item" not in result:
-        return None
-    item = {k: decimal_to_number(v) for k, v in dynamo_obj_to_python_obj(result["Item"]).items()}
-    # TypeDeserializer hands back a boto3.dynamodb.types.Binary wrapper for
-    # DynamoDB's B type, not plain bytes -- unwrap it explicitly.
-    item["input_log"] = unpack_input_log(bytes(item.pop("input_log_packed")))
-    return item
+    return python_data
 
 
 # --- Leaderboard name moderation queue -------------------------------------
@@ -436,38 +401,12 @@ def approve_pending_name(run_id):
         UpdateExpression="SET display_name = :name",
         ExpressionAttributeValues=python_obj_to_dynamo_obj({":name": pending["real_name"]}),
     )
-    # The champion record (see save_champion_run) duplicates display_name for
-    # its own reasons (see that function's comment) -- if this run currently
-    # holds the champion slot, its name needs the same promotion the
-    # leaderboard entry above just got, or it would keep showing the
-    # placeholder forever even after the real name is approved.
-    _promote_champion_display_name(int(pending["version"]), run_id, pending["real_name"])
     dynamo.delete_item(
         Key=python_obj_to_dynamo_obj({"key1": "unreviewed_name", "key2": run_id}),
         TableName=TABLE_NAME,
     )
     record_name_decision(pending["real_name"], True)
     return True
-
-
-def _promote_champion_display_name(version, run_id, real_name):
-    # Most approvals have nothing to do with the champion record -- the
-    # overwhelming majority of submitted runs were never #1. The condition
-    # makes that the cheap, common case: no champion record for this version
-    # yet, or a different (since-superseded, or simply higher-scoring) run_id
-    # currently holds it, both just no-op here rather than requiring a
-    # separate existence/ownership check up front.
-    try:
-        dynamo.update_item(
-            TableName=TABLE_NAME,
-            Key=python_obj_to_dynamo_obj({"key1": "champion", "key2": f"v{version}"}),
-            UpdateExpression="SET display_name = :name",
-            ConditionExpression="run_id = :runId",
-            ExpressionAttributeValues=python_obj_to_dynamo_obj({":name": real_name, ":runId": run_id}),
-        )
-    except ClientError as e:
-        if e.response["Error"]["Code"] != "ConditionalCheckFailedException":
-            raise
 
 
 def deny_pending_name(run_id):

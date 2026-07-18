@@ -11,8 +11,8 @@ from t9_wizard.utils import (
     get_game,
     delete_game,
     create_leaderboard_entry,
+    create_leaderboard_log,
     get_leaderboard,
-    save_champion_run,
     LEADERBOARD_LIMIT_DEFAULT,
     lambda_client,
     REPLAY_LAMBDA_NAME,
@@ -203,19 +203,17 @@ def submit_route(event, version):
 
     score = replay["score"]
     leaderboard_entry = create_leaderboard_entry(run_id, validated["display_name"], score, game_version)
-    # Reuses leaderboard_entry["display_name"] (already moderation-safe --
-    # the real name, or a placeholder if unapproved) rather than the raw
-    # validated["display_name"], so an unmoderated name can never end up on
-    # a record destined for something as public as a season-recap video.
-    # Never allowed to break submission -- a DynamoDB hiccup here shouldn't
-    # cost a legitimate player their score, same "nice to have" treatment as
-    # SaveGame/AudioEngine elsewhere in this codebase.
+    # Writes the companion replay-log row (see create_leaderboard_log) under
+    # the same key2 as the public entry above, on a separate partition
+    # (leaderboard#v<N>#log) get_leaderboard never queries. Never allowed to
+    # break submission -- a DynamoDB hiccup here shouldn't cost a legitimate
+    # player their score, same "nice to have" treatment as SaveGame/
+    # AudioEngine elsewhere in this codebase.
     try:
-        save_champion_run(
-            version=game_version,
+        create_leaderboard_log(
             run_id=run_id,
-            display_name=leaderboard_entry["display_name"],
-            score=score,
+            version=game_version,
+            key2=leaderboard_entry["key2"],
             seed=int(game["seed"]),
             input_log=validated["input_log"],
             tick_count=validated["tick_count"],
@@ -223,7 +221,7 @@ def submit_route(event, version):
             canvas_height=validated["canvas_height"],
         )
     except Exception as e:
-        log({"event": "save_champion_run_failed", "run_id": run_id, "version": game_version, "error": str(e)})
+        log({"event": "create_leaderboard_log_failed", "run_id": run_id, "version": game_version, "error": str(e)})
     # Deleting the game record makes run_id single-use -- the same run can
     # never be submitted a second time, closing off resubmission-for-a-
     # better-score abuse. Done last so a failed leaderboard write (above)
@@ -234,10 +232,16 @@ def submit_route(event, version):
 
 
 def leaderboard_route(event, version):
-    # Returns each leaderboard item's full raw DynamoDB record as-is (not a
-    # curated projection) so new fields/stats can be added later without
-    # this endpoint needing to change to expose them. Scoped to this
-    # version's own season -- each season has an independent top-N.
+    # get_leaderboard's Query only ever targets key1=f"leaderboard#v<N>" --
+    # the public, display_name/score-only partition. Each entry's full replay
+    # data (seed/input_log_packed/etc., for a future replay-serving feature)
+    # lives on a sibling item under key1=f"leaderboard#v<N>#log" instead,
+    # which this route never queries -- so there's nothing to leak to the
+    # client, and DynamoDB never even reads those heavier items for this
+    # request (a ProjectionExpression on a single combined item wouldn't
+    # achieve that -- DynamoDB bills by item size read, not by what's
+    # actually returned). Scoped to this version's own season -- each season
+    # has an independent top-N.
     # ?limit= lets a caller ask for more than the in-game screen's default
     # (see s3/leaderboard.html, which requests the full top 500) -- clamped
     # server-side in get_leaderboard, so this never needs to validate it.
