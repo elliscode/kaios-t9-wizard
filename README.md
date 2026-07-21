@@ -2,7 +2,11 @@
 
 A "Typing of the Dead"-style typing-combat game built for KaiOS feature phones — instead of a QWERTY keyboard, you fight off incoming words using the T9 numeric keypad (2-9).
 
+![Gameplay Screenshot](frontend-v3/assets/screenshot01.png) ![Gameplay Screenshot](frontend-v3/assets/screenshot02.png) ![Gameplay Screenshot](frontend-v3/assets/screenshot03.png) ![Gameplay Screenshot](frontend-v3/assets/screenshot04.png) ![Gameplay Screenshot](frontend-v3/assets/screenshot05.png)
+
 Colored blocks carrying a word fall from the top of the screen toward a grey player block at the bottom. Type the T9 digit sequence for a word before its block reaches the player to destroy it. Let one through and you lose a life; run out of lives and it's game over. It's a 50-wave roguelike run: 5 "worlds" of 10 waves each, with a typing boss fight at the end of every world.
+
+[![Youtube Video](frontend-v3/assets/youtube-thumbnail.png)](https://www.youtube.com/watch?v=vKPr1BCMCac)
 
 ## How it plays
 
