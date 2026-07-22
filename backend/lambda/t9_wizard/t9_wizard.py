@@ -202,7 +202,9 @@ def submit_route(event, version):
         return format_response(event=event, http_code=400, body="Run did not reach a valid end state")
 
     score = replay["score"]
-    leaderboard_entry = create_leaderboard_entry(run_id, validated["display_name"], score, game_version)
+    leaderboard_entry = create_leaderboard_entry(
+        run_id, validated["display_name"], score, game_version, won=(replay.get("mode") == "win")
+    )
     # Writes the companion replay-log row (see create_leaderboard_log) under
     # the same key2 as the public entry above, on a separate partition
     # (leaderboard#v<N>#log) get_leaderboard never queries. Never allowed to

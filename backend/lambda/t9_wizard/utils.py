@@ -217,7 +217,7 @@ LEADERBOARD_SCORE_SCALE = 100  # 2 decimal places of precision in the sort key
 LEADERBOARD_KEY2_OFFSET = 10**12  # comfortably above any realistic scaled score
 
 
-def create_leaderboard_entry(run_id, display_name, score, version):
+def create_leaderboard_entry(run_id, display_name, score, version, won):
     # key1 is scoped per version, shared by every leaderboard entry within
     # that version, so a single Query (sorted by key2, the table's native
     # sort key) returns just that season's entries in score order with no
@@ -250,6 +250,11 @@ def create_leaderboard_entry(run_id, display_name, score, version):
         # Decimal instead") -- str(score) first avoids binary-float
         # imprecision artifacts that Decimal(score) directly would carry in.
         "score": Decimal(str(score)),
+        # True only for a genuine "all 5 worlds cleared" win, never a boss
+        # rush completion (never submittable at all -- see
+        # isRunSubmittable/getSubmitReason in frontend-v3/js/game.js) or an
+        # ordinary game over, however high the score.
+        "won": bool(won),
     }
     dynamo.put_item(
         TableName=TABLE_NAME,
