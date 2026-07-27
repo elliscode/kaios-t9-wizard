@@ -194,7 +194,21 @@ function buildPendingNameRow(entry) {
   pendingNamesDiv.appendChild(div);
 }
 
+// Approve/deny remove the clicked row on success, shifting every row below
+// it up -- disabling every button for a beat closes the window where a fast
+// double-click (or a click that was already in flight when the layout
+// shifted) lands on whatever button is now under the cursor, e.g. approving
+// a name the admin never actually read.
+const BUTTON_LOCKOUT_MS = 1000;
+
+function disableAllButtonsFor(ms) {
+  const buttons = document.querySelectorAll('button');
+  buttons.forEach((b) => { b.disabled = true; });
+  setTimeout(() => buttons.forEach((b) => { b.disabled = false; }), ms);
+}
+
 async function approveName(event) {
+  disableAllButtonsFor(BUTTON_LOCKOUT_MS);
   const runId = event.target.getAttribute('runId');
   try {
     let response = await fetch(`${BASE_URL}/approve-name`, {
@@ -211,6 +225,7 @@ async function approveName(event) {
 }
 
 async function denyName(event) {
+  disableAllButtonsFor(BUTTON_LOCKOUT_MS);
   const runId = event.target.getAttribute('runId');
   try {
     let response = await fetch(`${BASE_URL}/deny-name`, {
