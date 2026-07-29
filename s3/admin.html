@@ -195,20 +195,28 @@ function buildPendingNameRow(entry) {
 }
 
 // Approve/deny remove the clicked row on success, shifting every row below
-// it up -- disabling every button for a beat closes the window where a fast
+// it up -- disabling every button closes the window where a fast
 // double-click (or a click that was already in flight when the layout
 // shifted) lands on whatever button is now under the cursor, e.g. approving
-// a name the admin never actually read.
+// a name the admin never actually read. Buttons stay disabled for the whole
+// request, not just a fixed timer from the click -- the admin API can cold-
+// start, and a fixed 1000ms lockout timed from the click would often re-
+// enable buttons *before* a slow response actually removes the row, leaving
+// the exact moment the layout shifts unprotected. The extra BUTTON_LOCKOUT_MS
+// only starts once the request (and any resulting row removal) has settled,
+// so the shift itself always happens while buttons are still disabled.
 const BUTTON_LOCKOUT_MS = 1000;
 
-function disableAllButtonsFor(ms) {
-  const buttons = document.querySelectorAll('button');
-  buttons.forEach((b) => { b.disabled = true; });
-  setTimeout(() => buttons.forEach((b) => { b.disabled = false; }), ms);
+function disableAllButtons() {
+  document.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+}
+
+function enableAllButtonsAfter(ms) {
+  setTimeout(() => document.querySelectorAll('button').forEach((b) => { b.disabled = false; }), ms);
 }
 
 async function approveName(event) {
-  disableAllButtonsFor(BUTTON_LOCKOUT_MS);
+  disableAllButtons();
   const runId = event.target.getAttribute('runId');
   try {
     let response = await fetch(`${BASE_URL}/approve-name`, {
@@ -218,14 +226,16 @@ async function approveName(event) {
     });
     if (response.status >= 200 && response.status < 300) {
       event.target.closest('.pending-name').remove();
+      enableAllButtonsAfter(BUTTON_LOCKOUT_MS);
       return;
     }
   } catch {}
+  enableAllButtonsAfter(BUTTON_LOCKOUT_MS);
   displayError('Error approving name, please try again.');
 }
 
 async function denyName(event) {
-  disableAllButtonsFor(BUTTON_LOCKOUT_MS);
+  disableAllButtons();
   const runId = event.target.getAttribute('runId');
   try {
     let response = await fetch(`${BASE_URL}/deny-name`, {
@@ -235,9 +245,11 @@ async function denyName(event) {
     });
     if (response.status >= 200 && response.status < 300) {
       event.target.closest('.pending-name').remove();
+      enableAllButtonsAfter(BUTTON_LOCKOUT_MS);
       return;
     }
   } catch {}
+  enableAllButtonsAfter(BUTTON_LOCKOUT_MS);
   displayError('Error denying name, please try again.');
 }
 
