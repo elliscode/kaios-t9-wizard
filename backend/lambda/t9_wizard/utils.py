@@ -28,6 +28,13 @@ KNOWN_VERSIONS = {int(v) for v in os.environ.get("KNOWN_VERSIONS", "").split(","
 # with a different screen) purely via an env var edit, no code change.
 EXPECTED_CANVAS_WIDTHS = {int(v) for v in os.environ.get("EXPECTED_CANVAS_WIDTHS", "").split(",") if v}
 EXPECTED_CANVAS_HEIGHTS = {int(v) for v in os.environ.get("EXPECTED_CANVAS_HEIGHTS", "").split(",") if v}
+# Display names (exact, case-sensitive match -- deliberately not normalized,
+# same reasoning as record_name_decision below) that should never appear on
+# the public leaderboard -- for the developer's own test/promo runs. Still
+# fully recorded via create_leaderboard_log (see submit_route), just skips
+# create_leaderboard_entry entirely. Left unset (empty) means "off": nothing
+# is excluded.
+ADMIN_DISPLAY_NAMES = {v.strip() for v in os.environ.get("ADMIN_DISPLAY_NAMES", "").split(",") if v.strip()}
 # Admin moderation login (see login_route/otp_route) -- a single hardcoded
 # phone number, not a general user system, since there's only ever one
 # legitimate admin. SMS is sent through an already-deployed, project-agnostic
@@ -217,17 +224,25 @@ LEADERBOARD_SCORE_SCALE = 100  # 2 decimal places of precision in the sort key
 LEADERBOARD_KEY2_OFFSET = 10**12  # comfortably above any realistic scaled score
 
 
+def leaderboard_key2(score, run_id):
+    # key2 is an inverted, zero-padded score so ascending key2 order --
+    # DynamoDB's native sort -- is descending score order. run_id is
+    # appended only to guarantee uniqueness if two runs' scores happen to be
+    # identical. Pulled out of create_leaderboard_entry so an admin run
+    # (see ADMIN_DISPLAY_NAMES) can compute the same key2 its
+    # create_leaderboard_log companion row needs without ever creating the
+    # public entry itself.
+    scaled_score = round(score * LEADERBOARD_SCORE_SCALE)
+    return f"{LEADERBOARD_KEY2_OFFSET - scaled_score:013d}#{run_id}"
+
+
 def create_leaderboard_entry(run_id, display_name, score, version, won):
     # key1 is scoped per version, shared by every leaderboard entry within
     # that version, so a single Query (sorted by key2, the table's native
     # sort key) returns just that season's entries in score order with no
     # GSI/scan needed -- each season gets its own independent top-100, since
-    # scores from different rulesets aren't really comparable. key2 is an
-    # inverted, zero-padded score so ascending key2 order is descending
-    # score -- run_id is appended only to guarantee uniqueness if two runs'
-    # scores happen to be identical.
-    scaled_score = round(score * LEADERBOARD_SCORE_SCALE)
-    key2 = f"{LEADERBOARD_KEY2_OFFSET - scaled_score:013d}#{run_id}"
+    # scores from different rulesets aren't really comparable.
+    key2 = leaderboard_key2(score, run_id)
     # The score goes live immediately, but display_name is free-text and
     # public -- rather than delaying the whole entry behind manual review,
     # it posts under an anonymous placeholder right away and the *real*
@@ -319,7 +334,7 @@ def unpack_input_log(packed):
     return entries
 
 
-def create_leaderboard_log(run_id, version, key2, seed, input_log, tick_count, canvas_width, canvas_height):
+def create_leaderboard_log(run_id, version, key2, seed, input_log, tick_count, canvas_width, canvas_height, admin_run):
     python_data = {
         "key1": f"leaderboard#v{version}#log",
         "key2": key2,
@@ -331,6 +346,11 @@ def create_leaderboard_log(run_id, version, key2, seed, input_log, tick_count, c
         "move_count": len(input_log),
         "input_log_packed": pack_input_log(input_log),
         "submitted_at": int(time.time()),
+        # True for a run submitted under one of ADMIN_DISPLAY_NAMES -- see
+        # submit_route -- makes the developer's own test/promo runs
+        # immediately identifiable among log rows, same boolean-flag style
+        # as create_leaderboard_entry's "won".
+        "admin_run": bool(admin_run),
     }
     dynamo.put_item(
         TableName=TABLE_NAME,

@@ -12,6 +12,7 @@ from t9_wizard.utils import (
     delete_game,
     create_leaderboard_entry,
     create_leaderboard_log,
+    leaderboard_key2,
     get_leaderboard,
     LEADERBOARD_LIMIT_DEFAULT,
     lambda_client,
@@ -22,6 +23,7 @@ from t9_wizard.utils import (
     deny_pending_name,
     EXPECTED_CANVAS_WIDTHS,
     EXPECTED_CANVAS_HEIGHTS,
+    ADMIN_DISPLAY_NAMES,
 )
 from t9_wizard.input_validation import validate_schema, SUBMIT_SCHEMA, MODERATE_NAME_SCHEMA
 
@@ -202,9 +204,18 @@ def submit_route(event, version):
         return format_response(event=event, http_code=400, body="Run did not reach a valid end state")
 
     score = replay["score"]
-    leaderboard_entry = create_leaderboard_entry(
-        run_id, validated["display_name"], score, game_version, won=(replay.get("mode") == "win")
-    )
+    # Own test/promo runs (see ADMIN_DISPLAY_NAMES) never touch the public
+    # leaderboard at all -- key2 still has to match what create_leaderboard_log
+    # writes below, so it's computed directly via the same helper
+    # create_leaderboard_entry itself uses.
+    is_admin_run = validated["display_name"] in ADMIN_DISPLAY_NAMES
+    if is_admin_run:
+        key2 = leaderboard_key2(score, run_id)
+    else:
+        leaderboard_entry = create_leaderboard_entry(
+            run_id, validated["display_name"], score, game_version, won=(replay.get("mode") == "win")
+        )
+        key2 = leaderboard_entry["key2"]
     # Writes the companion replay-log row (see create_leaderboard_log) under
     # the same key2 as the public entry above, on a separate partition
     # (leaderboard#v<N>#log) get_leaderboard never queries. Never allowed to
@@ -215,12 +226,13 @@ def submit_route(event, version):
         create_leaderboard_log(
             run_id=run_id,
             version=game_version,
-            key2=leaderboard_entry["key2"],
+            key2=key2,
             seed=int(game["seed"]),
             input_log=validated["input_log"],
             tick_count=validated["tick_count"],
             canvas_width=validated["canvas_width"],
             canvas_height=validated["canvas_height"],
+            admin_run=is_admin_run,
         )
     except Exception as e:
         log({"event": "create_leaderboard_log_failed", "run_id": run_id, "version": game_version, "error": str(e)})
