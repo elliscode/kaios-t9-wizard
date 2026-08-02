@@ -5,6 +5,18 @@ implemented yet. See `docs/replay-recording-tool.md` for the unrelated
 season-recap-video design sketch, and `README.md`'s own `## TODO`/`## TODO
 Stats` sections for the v1-era backlog this one continues from.
 
+- Fall Theme (september october november)
+Words:
+pumpkin, halloween, orange, pumpkinspice, psl, pumpkinspicelatte, acorn, pumpkinpie, harvest, apple, apples, bonfire, raking, scarecrow, spiders, squirrels, squirrel, vest, scarf, rake, sweater, crisp, autumn, fall, acorns, candy, candycorn, candyapple, trickortreat, treat, owl, hoot, cranberry, cranberries, applecider, caramelapple, butternut, squash, sepia, chestnut, amber, beige, brown, burgundy, crimson, haunt, haunted, hauntedhouse, hay, hayride, maroon, gold, golden, rust, saffron, scarlet, acornsquash, applebutter, applecrisp, applepie, berry, berries, caramel, corn, maize, cornmaze, cornbread, gourd, mushroom, nutmeg, pear, pecan, pecanpie, stew, turkey, turnip, yam, yams, applepicking, carving, pumpkincarving, playoffs, leaf, equinox, autumnal, bale, haybale, chestnuts, cobweb, cobwebs, cornucopia, deciduous, feast, harvestmoon, haystack, september, october, november, december, persimmon, pine, pinetree, pinetrees, pinecone, pinecones, raincoat, reap, reaper, grimreaper, chucky, michael, myers, michaelmyers, freddy, krueger, freddykrueger, elm, street, elmstreet, dracula, jekyll, hyde, doctorjekyll, misterhyde, frankenstein, bolts, bolt, scream, toil, jack, torrance, jacktorrance, heresjohnny,
+foliage, woods, forest, breeze, windy, chilly, cozy, flannel, mittens, gloves, beanie, hoodie, thermos, campfire, marshmallow, marshmallows, smore, smores, chimney, fireplace, woodsmoke, mist, foggy, fog, drizzle, gust, gusty, orchard, pumpkinpatch, tailgate, tailgating, football, homecoming, marchingband, hotcider, mulledcider, wassail, cinnamon, clove, cloves, ginger, allspice, gingersnap, spice, spices, spiced, costume, costumes, mask, masks, jackolantern, jackolanterns, ghoul, ghouls, ghost, ghosts, ghostly, goblin, goblins, witch, witches, witchcraft, broomstick, cauldron, potion, potions, spellbook, spell, spells, vampire, vampires, werewolf, werewolves, zombie, zombies, mummy, mummies, skeleton, skeletons, skull, skulls, bat, bats, blackcat, spiderweb, spiderwebs, creepy, spooky, spookyseason, eerie, macabre, sinister, gravestone, tombstone, graveyard, cemetery, crypt, coffin, casket, phantom, phantoms, poltergeist, nightmare, nightmares, howl, howling, fullmoon, candlelight, shadow, shadows, moth, moths, raven, ravens, crow, crows, trickortreater, trickortreaters, thanksgiving, gratitude, grateful, stuffing, gravy, cranberrysauce, greenbean, greenbeans, casserole, sweetpotato, sweetpotatoes, mashedpotatoes, drumstick, pilgrim, pilgrims, mayflower, plymouth, leatherface, ghostface, pennywise, exorcist, psycho, norman, bates, normanbates, annabelle, chainsaw, texaschainsaw, carrie, shining, overlook, overlookhotel, redrum, brundlefly, thefly,
+
+quote ideas: 
+- Frankenstein: The 1818 Text (Paperback)
+- Dr. Jekyll and Mr. Hyde (Mass Market Paperback)
+- The Picture of Dorian Gray (Paperback)
+- Dracula (Paperback)
+- H.P. Lovecraft stories
+
 - [ ] **New powerup: Multiplier Shield**
   - Stacks like lives (you can hold more than one at a time), 1% spawn
     probability — same tier as the existing four (`POWERUP_PROBABILITIES` in
