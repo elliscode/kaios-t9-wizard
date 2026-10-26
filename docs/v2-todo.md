@@ -5,6 +5,12 @@ implemented yet. See `docs/replay-recording-tool.md` for the unrelated
 season-recap-video design sketch, and `README.md`'s own `## TODO`/`## TODO
 Stats` sections for the v1-era backlog this one continues from.
 
+- [x] **Season 2 shipped as a Christmas theme instead** — themed words in
+  `CHRISTMAS_WORDS_BY_LENGTH` (`frontend-v3/data/words-data.js`, mixed in by
+  `WordBank.pickWord` at `THEMED_WORD_CHANCE`), green→gold→red palette in
+  `frontend-v3/js/colors.js`, and Christmas-lit boss sentences. The fall list
+  below is parked for a future fall season.
+
 - Fall Theme (september october november)
 Words:
 pumpkin, halloween, orange, pumpkinspice, psl, pumpkinspicelatte, acorn, pumpkinpie, harvest, apple, apples, bonfire, raking, scarecrow, spiders, squirrels, squirrel, vest, scarf, rake, sweater, crisp, autumn, fall, acorns, candy, candycorn, candyapple, trickortreat, treat, owl, hoot, cranberry, cranberries, applecider, caramelapple, butternut, squash, sepia, chestnut, amber, beige, brown, burgundy, crimson, haunt, haunted, hauntedhouse, hay, hayride, maroon, gold, golden, rust, saffron, scarlet, acornsquash, applebutter, applecrisp, applepie, berry, berries, caramel, corn, maize, cornmaze, cornbread, gourd, mushroom, nutmeg, pear, pecan, pecanpie, stew, turkey, turnip, yam, yams, applepicking, carving, pumpkincarving, playoffs, leaf, equinox, autumnal, bale, haybale, chestnuts, cobweb, cobwebs, cornucopia, deciduous, feast, harvestmoon, haystack, september, october, november, december, persimmon, pine, pinetree, pinetrees, pinecone, pinecones, raincoat, reap, reaper, grimreaper, chucky, michael, myers, michaelmyers, freddy, krueger, freddykrueger, elm, street, elmstreet, dracula, jekyll, hyde, doctorjekyll, misterhyde, frankenstein, bolts, bolt, scream, toil, jack, torrance, jacktorrance, heresjohnny,
@@ -17,7 +23,9 @@ quote ideas:
 - Dracula (Paperback)
 - H.P. Lovecraft stories
 
-- [ ] **New powerup: Multiplier Shield**
+- [x] **New powerup: Multiplier Shield** — shipped in Season 2. Decided:
+  shield saves the multiplier only (life loss still happens); stacks with
+  no cap; HUD shows up to 5 yellow squares under the multiplier, then +N.
   - Stacks like lives (you can hold more than one at a time), 1% spawn
     probability — same tier as the existing four (`POWERUP_PROBABILITIES` in
     `frontend-v3/js/game.js`, currently `extraLife`/`halfSpeed`/`halfLength`/
@@ -55,7 +63,11 @@ quote ideas:
     *underlying* `scoreMultiplier` as normal, still doubled once it rebuilds?
     or cancel the powerup outright?).
 
-- [ ] **New powerup: Bonus Words**
+- [x] **New powerup: Bonus Words** — shipped in Season 2. Decided: 5 words
+  per pickup (10–12 letters) in fixed rows near the top, alternating
+  directions; scored like enemies, don't count toward the wave's 20, never
+  roll powerups; lowest lock-on priority; a second pickup queues behind the
+  first batch in each row.
   - Spawns additional enemies that move horizontally (left-to-right or
     right-to-left) rather than falling toward the player — can never hit/hurt
     the player, purely optional bonus points. Long words (~12 letters) for a
@@ -71,7 +83,9 @@ quote ideas:
     already fine: `words-data.js` tops out at exactly length 12, with 191
     words available at that length, so no new word-bank content is needed.
 
-- [ ] **New powerup: Time Freeze**
+- [x] **New powerup: Time Freeze** — shipped in Season 2. Decided: 10s;
+  freezes enemies, bonus words and spawning (powerups keep rising); cleared
+  at wave transitions; bosses unaffected; playfield tints icy blue.
   - Freezes every enemy/boss currently on screen in place for a short
     duration (exact seconds TBD — "0 seconds" in the original note is
     presumably a typo) so the player gets a breather to catch up rather than
@@ -150,7 +164,10 @@ quote ideas:
     `README.md`'s "Word data" section — profanity/slurs/sensitive-topic
     filtering) applied to whatever's pulled in each year.
 
-- [ ] **Design decision: cap active powerups at 4, rotate 3 of them per season**
+- [x] **Design decision: cap active powerups at 4, rotate 3 of them per season**
+  — adopted for Season 2 (extraLife + multiplierShield/bonusWords/timeFreeze).
+  Retired types' code stays dormant in `frontend-v3/`, toggled purely by
+  `POWERUP_PROBABILITIES` membership.
   - Keep the *total number of concurrently-live powerup types* fixed at 4
     (matches today's `POWERUP_PROBABILITIES` size), but make it a fixed slot
     + a rotating pool rather than a hardcoded set:

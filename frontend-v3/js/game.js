@@ -74,10 +74,33 @@ var Game = (function () {
   // kill, tunable individually here. At most one powerup ever spawns per kill
   // (see rollPowerupSpawns) — letting more than one hit on the same kill would
   // stack multiple blocks at the exact same spot, rendering unreadable.
-  var POWERUP_PROBABILITIES = { extraLife: 1 / 100, halfSpeed: 1 / 100, halfLength: 1 / 100, screenWipe: 1 / 100 };
-  var POWERUP_COLORS = { extraLife: 'white', halfSpeed: 'lightblue', halfLength: 'lightcoral', screenWipe: 'khaki' };
-  var POWERUP_DISPLAY_NAMES = { extraLife: 'EXTRA LIFE', halfSpeed: 'HALF SPEED', halfLength: 'SHORT WORDS', screenWipe: 'SCREEN WIPE' };
+  //
+  // extraLife is in every season; the other three slots rotate per season
+  // (see docs/v2-todo.md). Only types listed in POWERUP_PROBABILITIES ever
+  // spawn -- Season 1's halfSpeed/halfLength/screenWipe are retired for
+  // Season 2 but their effect code below is kept, dormant, so a later season
+  // can rotate them back in just by listing them here again.
+  var POWERUP_PROBABILITIES = { extraLife: 1 / 100, multiplierShield: 1 / 100, bonusWords: 1 / 100, timeFreeze: 1 / 100 };
+  var POWERUP_COLORS = {
+    extraLife: 'white', multiplierShield: 'yellow', bonusWords: 'violet', timeFreeze: 'lightblue',
+    halfSpeed: 'lightblue', halfLength: 'plum', screenWipe: 'khaki'
+  };
+  var POWERUP_DISPLAY_NAMES = {
+    extraLife: 'EXTRA LIFE', multiplierShield: 'MULTIPLIER SHIELD', bonusWords: 'BONUS WORDS', timeFreeze: 'TIME FREEZE',
+    halfSpeed: 'HALF SPEED', halfLength: 'SHORT WORDS', screenWipe: 'SCREEN WIPE'
+  };
   var POWERUP_EFFECT_DURATION_MS = 10000;
+  var TIME_FREEZE_DURATION_MS = 10000;
+  // Bonus words: long, harmless words that cross the screen sideways in
+  // their own rows near the top -- optional points, paid for in attention.
+  var BONUS_WORD_COUNT = 5;
+  var BONUS_WORD_MIN_LEN = 10;
+  var BONUS_WORD_MAX_LEN = 12;
+  var BONUS_WORD_SPEED = 45; // px/sec, tunable -- roughly 6-8s to cross a 240px screen
+  var BONUS_WORD_FIRST_ROW_Y = 34;
+  var BONUS_WORD_ROW_SPACING = 34; // block + word label + breathing room
+  var BONUS_WORD_MAX_STAGGER = 80; // px of extra off-screen start distance, so rows don't move in lockstep
+  var BONUS_WORD_ROW_GAP = 24; // min px between two bonus words sharing a row (a second pickup's batch)
   var POWERUP_FLASH_DURATION_MS = 2000;
   var POWERUP_RISE_SPEED = 20; // px/sec, tunable
   var POWERUP_SIZE = 24; // small fixed square; icons come later, no word-length sizing needed
@@ -124,6 +147,7 @@ var Game = (function () {
       pausedFromMode: null,
       enemies: [],
       powerups: [],
+      bonusWords: [],
       boss: null,
       transition: null,
       nextEntityId: 1,
@@ -135,6 +159,8 @@ var Game = (function () {
       usedSentences: {},
       halfSpeedRemainingMs: 0,
       halfLengthRemainingMs: 0,
+      timeFreezeRemainingMs: 0,
+      multiplierShields: 0,
       powerupFlash: null,
       waveCompletePending: false,
       spawnAccumulator: 0,
@@ -232,6 +258,10 @@ var Game = (function () {
 
   function updateSpawning(dt) {
     if (state.spawnedThisWave >= ENEMIES_PER_WAVE) return;
+    // A freeze pauses the spawn clock too, not just movement -- otherwise
+    // fresh enemies would keep piling in while the frozen ones sit there,
+    // undercutting the breather the powerup is for.
+    if (state.timeFreezeRemainingMs > 0) return;
     state.spawnAccumulator += dt;
     while (state.spawnAccumulator >= SPAWN_INTERVAL_MS && state.spawnedThisWave < ENEMIES_PER_WAVE) {
       spawnEnemy();
@@ -246,7 +276,7 @@ var Game = (function () {
     // baseSpeed rather than mutating .speed on collection — so repeat
     // half-speed pickups can never compound toward zero, and speed reverts
     // to normal the instant the effect's duration elapses.
-    var multiplier = state.halfSpeedRemainingMs > 0 ? 0.5 : 1;
+    var multiplier = state.timeFreezeRemainingMs > 0 ? 0 : (state.halfSpeedRemainingMs > 0 ? 0.5 : 1);
     state.enemies.forEach(function (e) {
       e.y += e.baseSpeed * multiplier * dtSeconds;
     });
@@ -262,8 +292,7 @@ var Game = (function () {
         // Getting hit always breaks the perfect-word streak and flashes the
         // screen, exactly like a real typing mistake -- regardless of
         // whether this particular enemy was the one actually locked/typed.
-        state.wordCombo = 0;
-        state.scoreMultiplier = 1;
+        breakStreak();
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
         if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.HIT);
         // Only clear the typing buffer if THIS enemy was the locked one --
@@ -293,6 +322,11 @@ var Game = (function () {
     // through the transition and any subsequent boss fight, then reappear
     // later. Consistent with the existing "scrolled off = lost, no penalty".
     state.powerups = [];
+    // Same for bonus words, and a still-running freeze: a freeze triggered
+    // by the wave's last kill would otherwise carry into the next wave and
+    // hold its spawning paused.
+    state.bonusWords = [];
+    state.timeFreezeRemainingMs = 0;
     InputEngine.reset();
     state.mode = STATE.TRANSITION;
     state.transition = { timerMs: TRANSITION_DURATION_MS, isBoss: isBoss };
@@ -354,6 +388,8 @@ var Game = (function () {
     // in flight before moving on — killing the last enemy shouldn't yank
     // away powerups the player hasn't had a chance to type yet.
     if (state.powerups.length > 0) return;
+    // Same courtesy for bonus words still crossing the screen.
+    if (state.bonusWords.length > 0) return;
     // Don't cut a powerup announcement short by jumping into the next-wave/
     // boss transition mid-flash — finish showing it first. updatePowerupTimers
     // picks this back up and proceeds the instant the flash naturally clears.
@@ -473,6 +509,85 @@ var Game = (function () {
     });
   }
 
+  // Every real mistake (typo, enemy or boss sentence reaching the player)
+  // breaks the per-word letter combo and, normally, the run's multiplier.
+  // A Multiplier Shield is spent instead of the multiplier -- one shield per
+  // event, so two enemies escaping on the same tick cost two. Life loss is
+  // handled by the callers and is never blocked by a shield.
+  function breakStreak() {
+    state.wordCombo = 0;
+    if (state.multiplierShields > 0) {
+      state.multiplierShields -= 1;
+    } else {
+      state.scoreMultiplier = 1;
+    }
+  }
+
+  function spawnBonusWords() {
+    var activeWords = {};
+    state.enemies.concat(state.bonusWords).forEach(function (e) { activeWords[e.word] = true; });
+    var activeWordsSet = { has: function (w) { return !!activeWords[w]; } };
+    for (var i = 0; i < BONUS_WORD_COUNT; i++) {
+      var word = WordBank.pickWord(BONUS_WORD_MIN_LEN, BONUS_WORD_MAX_LEN, activeWordsSet);
+      activeWords[word] = true;
+      var width = Math.max(MIN_BLOCK_WIDTH, word.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
+      var leftToRight = i % 2 === 0;
+      var stagger = Rng.next() * BONUS_WORD_MAX_STAGGER;
+      var rowY = BONUS_WORD_FIRST_ROW_Y + i * BONUS_WORD_ROW_SPACING;
+      var x = leftToRight ? -width - stagger : CANVAS_WIDTH + stagger;
+      // A second pickup while the first batch is still crossing: every row
+      // always moves the same direction at the same speed, so queueing the
+      // new word behind whatever's already in its row is enough to keep
+      // the two from ever overlapping.
+      state.bonusWords.forEach(function (other) {
+        if (other.y !== rowY) return;
+        if (leftToRight) x = Math.min(x, other.x - width - BONUS_WORD_ROW_GAP);
+        else x = Math.max(x, other.x + other.width + BONUS_WORD_ROW_GAP);
+      });
+      state.bonusWords.push(Enemy.createBonusWord({
+        id: state.nextEntityId++,
+        word: word,
+        code: T9.wordToT9Code(word),
+        x: x,
+        y: rowY,
+        width: width,
+        height: BLOCK_HEIGHT,
+        color: Colors.colorForWordLength(word.length),
+        vx: leftToRight ? BONUS_WORD_SPEED : -BONUS_WORD_SPEED
+      }));
+    }
+  }
+
+  // Bonus words only ever move sideways and never reach the player -- one
+  // leaving the far edge is simply gone, no life lost and no streak broken.
+  function updateBonusWords(dt) {
+    if (state.bonusWords.length === 0) return;
+    if (state.timeFreezeRemainingMs > 0) return; // frozen along with everything else
+    var dtSeconds = dt / 1000;
+    var stillCrossing = [];
+    state.bonusWords.forEach(function (b) {
+      b.x += b.vx * dtSeconds;
+      var gone = b.vx > 0 ? b.x > CANVAS_WIDTH : b.x + b.width < 0;
+      if (!gone) {
+        stillCrossing.push(b);
+      } else if (b.id === InputEngine.getLockedEnemyId()) {
+        InputEngine.reset(); // mirrors a powerup scrolling off while locked
+      }
+    });
+    state.bonusWords = stillCrossing;
+    checkWaveComplete();
+  }
+
+  // Scored like any enemy (via applyTypingResult) but deliberately not one
+  // of the wave's 20 -- doesn't touch resolvedThisWave -- and never rolls a
+  // powerup, so a Bonus Words pickup can't chain into more pickups.
+  function handleBonusKill(id) {
+    state.bonusWords = state.bonusWords.filter(function (b) { return b.id !== id; });
+    if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.KILL);
+    checkWaveComplete();
+    SaveGame.save(state);
+  }
+
   function applyPowerupEffect(type) {
     if (type === 'extraLife') {
       state.lives += 1;
@@ -483,6 +598,12 @@ var Game = (function () {
       applyHalfLengthToExistingEnemies();
     } else if (type === 'screenWipe') {
       wipeScreen();
+    } else if (type === 'multiplierShield') {
+      state.multiplierShields += 1;
+    } else if (type === 'timeFreeze') {
+      state.timeFreezeRemainingMs = TIME_FREEZE_DURATION_MS;
+    } else if (type === 'bonusWords') {
+      spawnBonusWords();
     }
   }
 
@@ -557,8 +678,7 @@ var Game = (function () {
       // An incomplete sentence reaching the player is a failed attempt at
       // "one long word" -- breaks the perfect-word multiplier streak and
       // flashes the screen, exactly like a real typing mistake.
-      state.wordCombo = 0;
-      state.scoreMultiplier = 1;
+      breakStreak();
       state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
       if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.HIT);
       if (state.lives <= 0) {
@@ -620,6 +740,9 @@ var Game = (function () {
     if (state.halfLengthRemainingMs > 0) {
       state.halfLengthRemainingMs = Math.max(0, state.halfLengthRemainingMs - dt);
     }
+    if (state.timeFreezeRemainingMs > 0) {
+      state.timeFreezeRemainingMs = Math.max(0, state.timeFreezeRemainingMs - dt);
+    }
     if (state.powerupFlash) {
       state.powerupFlash.timerMs -= dt;
       if (state.powerupFlash.timerMs <= 0) {
@@ -651,6 +774,8 @@ var Game = (function () {
       if (state.mode !== STATE.PLAYING) return;
       updateSpawning(dt);
       updateEnemies(dt);
+      updateBonusWords(dt);
+      if (state.mode !== STATE.PLAYING) return; // the last bonus word leaving can end the wave
       updatePowerups(dt);
       checkCollisions();
     } else if (state.mode === STATE.TRANSITION) {
@@ -888,7 +1013,7 @@ var Game = (function () {
     } else if (state.mode === STATE.LEADERBOARD) {
       try {
         if (typeof window !== 'undefined' && window.open) {
-          window.open('https://elliscode.com/t9-wizard/leaderboard.html', '_blank');
+          window.open('https://t9-wizard.elliscode.com/leaderboard-season2.html', '_blank');
         }
       } catch (e) {
         // Never let this break the game -- same philosophy as AudioEngine/SaveGame.
@@ -1015,12 +1140,12 @@ var Game = (function () {
   function applyTypingResult(result) {
     if (result.type === 'wrong') {
       if (!result.benign) {
-        state.wordCombo = 0;
         state.currentWordHadMistake = true;
         // Multiplier resets the instant a real mistake registers, not
         // deferred until the word finishes -- a mistake mid-word shouldn't
-        // still be "spending" a streak it already broke.
-        state.scoreMultiplier = 1;
+        // still be "spending" a streak it already broke. (Unless a
+        // Multiplier Shield absorbs it -- see breakStreak.)
+        breakStreak();
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
         if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
       }
@@ -1097,7 +1222,7 @@ var Game = (function () {
       }
     }
     if (state.mode === STATE.PLAYING) {
-      var typable = state.enemies.concat(state.powerups);
+      var typable = state.enemies.concat(state.powerups, state.bonusWords);
       var lockedIdBefore = InputEngine.getLockedEnemyId();
       var result = InputEngine.handleDigit(digit, typable);
 
@@ -1119,6 +1244,8 @@ var Game = (function () {
       if (result.type === 'kill') {
         if (targetIsPowerup) {
           collectPowerup(result.enemyId);
+        } else if (state.bonusWords.some(function (b) { return b.id === result.enemyId; })) {
+          handleBonusKill(result.enemyId);
         } else {
           handleKill(result.enemyId);
         }
@@ -1238,9 +1365,12 @@ var Game = (function () {
     restored.nextEntityId = saved.nextEntityId;
     restored.enemies = saved.enemies || [];
     restored.powerups = saved.powerups || [];
+    restored.bonusWords = saved.bonusWords || [];
     restored.boss = saved.boss || null;
     restored.halfSpeedRemainingMs = saved.halfSpeedRemainingMs || 0;
     restored.halfLengthRemainingMs = saved.halfLengthRemainingMs || 0;
+    restored.timeFreezeRemainingMs = saved.timeFreezeRemainingMs || 0;
+    restored.multiplierShields = saved.multiplierShields || 0;
     restored.usedSentences = saved.usedSentences || {};
     // See save.js's comment on these three -- each affects exactly which
     // tick something happens on (a spawn, a wave transition), so silently

@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>T9 Wizard — A Typing Game for KaiOS Flip Phones</title>
+  <meta name="description" content="Turn your T9 keypad into a weapon in T9 Wizard, a fast-paced typing-action game built for KaiOS flip phones." />
+  <link rel="canonical" href="https://t9-wizard.elliscode.com/" />
+  <meta name="theme-color" content="#0b0716" />
+  <link rel="icon" type="image/png" sizes="56x56" href="images/icon-56.png" />
+  <link rel="apple-touch-icon" href="images/icon-112.png" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="T9 Wizard" />
+  <meta property="og:url" content="https://t9-wizard.elliscode.com/" />
+  <meta property="og:title" content="T9 Wizard — A Typing Game for KaiOS Flip Phones" />
+  <meta property="og:description" content="Turn your T9 keypad into a weapon in T9 Wizard, a fast-paced typing-action game built for KaiOS flip phones." />
+  <meta property="og:image" content="https://t9-wizard.elliscode.com/images/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="T9 Wizard: a wizard holding a T9 keypad spellbook amid falling word blocks and slime monsters" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="T9 Wizard — A Typing Game for KaiOS Flip Phones" />
+  <meta name="twitter:description" content="Turn your T9 keypad into a weapon in T9 Wizard, a fast-paced typing-action game built for KaiOS flip phones." />
+  <meta name="twitter:image" content="https://t9-wizard.elliscode.com/images/og.jpg" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Inter:wght@400;500;600;700&family=Silkscreen&display=swap" rel="stylesheet" />
+
+  <style>
+    /* Palette pulled from the T9 Wizard key art (images/hero-*.jpg): deep
+       dungeon indigo, spell purple, electric blue, title gold, slime green.
+       Season 2 adds frost blue + holly/christmas red from its in-game
+       palette (frontend-v3/js/colors.js). Dark-only on purpose -- it's an
+       arcade at night. */
+    :root {
+      --bg: #0b0716;
+      --bg-2: #120a24;
+      --panel: rgba(22, 13, 42, 0.86);
+      --panel-solid: #160d2a;
+      --line: #35265e;
+      --line-bright: #5a3fa3;
+      --text: #f1ecff;
+      --muted: #b9b0dd;
+      --dim: #8a7fb3;
+      --purple: #a46bff;
+      --blue: #3fd0ff;
+      --gold: #ffc93c;
+      --gold-deep: #e89a12;
+      --slime: #74f04a;
+      --danger: #ff4d5e;
+      --frost: #bfe9ff;
+      --holly: #22b14c;
+      --xmas-red: #d62828;
+      --header-h: 64px;
+      --gutter: 16px;
+      --maxw: 1160px;
+      --radius: 14px;
+      --pixel-corner: polygon(0 6px, 6px 6px, 6px 0, calc(100% - 6px) 0, calc(100% - 6px) 6px, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 6px), 0 calc(100% - 6px));
+      --font-display: 'Bungee', 'Impact', system-ui, sans-serif;
+      --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      --font-pixel: 'Silkscreen', ui-monospace, 'Courier New', monospace;
+    }
+    @media (min-width: 720px) { :root { --gutter: 28px; } }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: 17px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    img { max-width: 100%; display: block; }
+    a { color: var(--blue); }
+    a:hover { color: var(--frost); }
+    :focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; border-radius: 4px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .skip-link { position: absolute; left: 12px; top: -60px; z-index: 100; background: var(--gold); color: #1a0f00; padding: 10px 14px; font-weight: 700; border-radius: 8px; text-decoration: none; }
+    .skip-link:focus { top: 12px; }
+
+    /* ---------- falling word bricks (decorative background) ---------- */
+    #bricks {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      pointer-events: none;
+    }
+    /* Keeps the bricks a subdued backdrop: darkest in the middle where the
+       content column sits, so text always has contrast. */
+    .veil {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(ellipse 70% 60% at 50% 45%, rgba(11, 7, 22, 0.55), rgba(11, 7, 22, 0) 70%),
+        linear-gradient(180deg, rgba(11, 7, 22, 0.15), rgba(11, 7, 22, 0.55));
+    }
+    .page { position: relative; z-index: 1; }
+
+    /* ---------- shared bits ---------- */
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 var(--gutter); }
+    section { scroll-margin-top: calc(var(--header-h) + 12px); }
+    .section { padding: clamp(56px, 9vw, 104px) 0; }
+    .eyebrow, .label {
+      font-family: var(--font-pixel);
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .eyebrow { color: var(--gold); }
+    h1, h2, h3 { font-family: var(--font-display); font-weight: 400; line-height: 1.08; margin: 0; letter-spacing: 0.01em; }
+    h2.section-title { font-size: clamp(28px, 4.6vw, 48px); max-width: 18ch; }
+    .section-head { margin-bottom: clamp(28px, 4vw, 44px); }
+    .section-head p { color: var(--muted); max-width: 60ch; margin: 14px 0 0; font-size: 18px; }
+    .section-head .eyebrow { display: block; margin-bottom: 12px; }
+
+    .btn {
+      --btn-bg: var(--gold);
+      --btn-fg: #1d1100;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 12px 22px;
+      border: 2px solid transparent;
+      border-radius: 10px;
+      background: var(--btn-bg);
+      color: var(--btn-fg);
+      font-family: var(--font-display);
+      font-size: 16px;
+      letter-spacing: 0.03em;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 0 0 0 0 rgba(255, 201, 60, 0), 0 6px 0 var(--gold-deep);
+      transition: transform 0.12s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+    .btn:hover { color: var(--btn-fg); box-shadow: 0 0 24px rgba(255, 201, 60, 0.45), 0 6px 0 var(--gold-deep); transform: translateY(-1px); }
+    .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 var(--gold-deep); }
+    .btn-ghost {
+      --btn-bg: transparent;
+      --btn-fg: var(--text);
+      border-color: var(--line-bright);
+      box-shadow: none;
+    }
+    .btn-ghost:hover { --btn-fg: var(--text); border-color: var(--blue); box-shadow: 0 0 20px rgba(63, 208, 255, 0.3); }
+    .btn-ghost:active { box-shadow: none; }
+    .btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-family: var(--font-pixel);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+    }
+    .badge::before { content: ''; width: 8px; height: 8px; background: currentColor; box-shadow: 0 0 10px currentColor; }
+
+    /* ---------- header ---------- */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(11, 7, 22, 0.9);
+      border-bottom: 1px solid var(--line);
+    }
+    .site-header .wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: var(--header-h);
+    }
+    .logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-display);
+      font-size: 20px;
+      color: var(--gold);
+      text-decoration: none;
+      white-space: nowrap;
+      text-shadow: 0 0 14px rgba(164, 107, 255, 0.6);
+    }
+    .logo:hover { color: var(--gold); }
+    .logo img { width: 32px; height: 32px; border-radius: 6px; image-rendering: pixelated; }
+    .nav { display: flex; align-items: center; gap: 4px; }
+    .nav a:not(.btn) {
+      font-family: var(--font-pixel);
+      font-size: 13px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-decoration: none;
+      padding: 10px 12px;
+      border-radius: 8px;
+    }
+    .nav a:not(.btn):hover { color: var(--text); background: rgba(164, 107, 255, 0.14); }
+    .nav .btn { min-height: 40px; padding: 8px 16px; font-size: 14px; margin-left: 8px; box-shadow: 0 4px 0 var(--gold-deep); }
+    .header-play { display: none; min-height: 38px; padding: 6px 14px; font-size: 13px; box-shadow: 0 4px 0 var(--gold-deep); }
+    @media (max-width: 760px) {
+      .site-header .wrap { flex-wrap: wrap; row-gap: 0; padding-top: 8px; }
+      .nav { order: 3; width: 100%; justify-content: space-between; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+      .nav::-webkit-scrollbar { display: none; }
+      .nav a:not(.btn) { padding: 8px 6px; font-size: 12px; white-space: nowrap; }
+      .nav .btn { display: none; }
+      .header-play { display: inline-flex; }
+      :root { --header-h: 104px; }
+    }
+
+    /* ---------- hero ---------- */
+    .hero { padding: clamp(36px, 7vw, 88px) 0 clamp(48px, 8vw, 96px); }
+    .hero .wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: clamp(28px, 5vw, 56px);
+      align-items: center;
+    }
+    @media (min-width: 900px) { .hero .wrap { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); } }
+    .hero h1 {
+      font-size: clamp(52px, 10vw, 104px);
+      color: var(--gold);
+      text-shadow: 0 3px 0 var(--gold-deep), 0 0 28px rgba(164, 107, 255, 0.55);
+      margin: 14px 0 10px;
+    }
+    .hero .tagline {
+      font-family: var(--font-display);
+      font-size: clamp(19px, 2.6vw, 28px);
+      line-height: 1.25;
+      color: var(--text);
+      margin: 0 0 18px;
+    }
+    .hero .tagline span { color: var(--blue); }
+    .hero .tagline span + span { color: var(--purple); }
+    .hero .tagline span + span + span { color: var(--slime); }
+    .hero p { color: var(--muted); margin: 0 0 12px; max-width: 54ch; }
+    .hero p.punch { color: var(--text); font-weight: 600; }
+    .cta-row { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 26px; }
+
+    .t9-demo {
+      margin-top: 30px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 14px 18px;
+    }
+    .keys { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; width: min(100%, 420px); }
+    .key {
+      aspect-ratio: 1 / 1.05;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #1a1030;
+      border: 1px solid var(--line-bright);
+      border-radius: 8px;
+      box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.45);
+      transition: background 0.12s, box-shadow 0.12s, transform 0.12s;
+    }
+    .key b { font-family: var(--font-display); font-weight: 400; font-size: clamp(14px, 3.6vw, 20px); color: var(--text); line-height: 1; }
+    .key small { font-family: var(--font-pixel); font-size: clamp(7px, 1.8vw, 9px); color: var(--dim); letter-spacing: 0.06em; margin-top: 3px; }
+    .key.lit { background: #2c1a52; border-color: var(--slime); box-shadow: 0 0 16px rgba(116, 240, 74, 0.55), inset 0 -1px 0 rgba(0, 0, 0, 0.45); transform: translateY(2px); }
+    .key.lit b { color: var(--slime); }
+    .readout {
+      font-family: var(--font-pixel);
+      font-size: 15px;
+      min-width: 13ch;
+      padding: 8px 12px;
+      background: #07040f;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .readout .typed { color: var(--slime); }
+    .readout .code { color: var(--gold); }
+
+    .hero-art { position: relative; justify-self: center; width: min(100%, 560px); }
+    .hero-art .frame {
+      position: relative;
+      border-radius: 20px;
+      padding: 6px;
+      background: linear-gradient(160deg, var(--purple), var(--blue) 40%, var(--gold) 100%);
+      box-shadow: 0 0 60px rgba(164, 107, 255, 0.35), 0 24px 60px rgba(0, 0, 0, 0.6);
+    }
+    .hero-art img { width: 100%; height: auto; aspect-ratio: 1 / 1; border-radius: 15px; background: var(--bg-2); }
+    .hud-chip {
+      position: absolute;
+      font-family: var(--font-pixel);
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      padding: 7px 10px;
+      background: rgba(7, 4, 15, 0.92);
+      border: 1px solid var(--line-bright);
+      border-radius: 6px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .hud-chip.score { left: -10px; bottom: 26px; }
+    .hud-chip.score b { color: var(--gold); font-weight: 400; }
+    .hud-chip.lives { right: -8px; top: 22px; display: flex; gap: 5px; align-items: center; }
+    .hud-chip.lives i { width: 10px; height: 10px; background: #e74c3c; display: inline-block; }
+    @media (max-width: 480px) { .hud-chip.score { left: 6px; } .hud-chip.lives { right: 6px; } }
+
+    /* ---------- how to play ---------- */
+    .steps { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 880px) { .steps { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .step { display: flex; flex-direction: column; }
+    .step-media {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      min-height: 250px;
+      padding: 22px;
+      background:
+        linear-gradient(180deg, rgba(164, 107, 255, 0.12), rgba(164, 107, 255, 0)),
+        #0d0820;
+      border-bottom: 1px solid var(--line);
+    }
+    .shot {
+      width: 165px;
+      height: auto;
+      aspect-ratio: 3 / 4;
+      image-rendering: pixelated;
+      border-radius: 8px;
+      border: 2px solid #2a1f4a;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      background: #111;
+    }
+    .step-body { padding: 22px 22px 26px; }
+    .step-num { font-family: var(--font-pixel); color: var(--blue); font-size: 13px; letter-spacing: 0.14em; }
+    .step h3 { font-size: 23px; margin: 8px 0 10px; }
+    .step p { margin: 0; color: var(--muted); font-size: 16px; }
+    .step p + p { margin-top: 10px; }
+    .stat-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 280px; }
+    .stat-list li { background: #07040f; border: 1px solid var(--line); border-radius: 8px; padding: 10px; text-align: center; }
+    .stat-list b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 26px; color: var(--gold); line-height: 1.1; }
+    .stat-list span { font-family: var(--font-pixel); font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+
+    .mini-pad { display: grid; grid-template-columns: repeat(3, 56px); gap: 7px; }
+    .mini-pad .key { aspect-ratio: auto; height: 46px; }
+    .mini-pad .key.dim { opacity: 0.35; }
+    .mini-pad .key.hit { border-color: var(--gold); background: #2a1c10; }
+    .mini-pad .key.hit b { color: var(--gold); }
+    .word-code { font-family: var(--font-pixel); font-size: 14px; text-align: center; color: var(--muted); margin-top: 12px; }
+    .word-code b { color: var(--slime); font-weight: 400; }
+    .word-code i { font-style: normal; color: var(--gold); }
+
+    .callout {
+      margin-top: 28px;
+      padding: 22px 24px;
+      border: 2px solid var(--purple);
+      border-radius: var(--radius);
+      background: linear-gradient(90deg, rgba(164, 107, 255, 0.2), rgba(63, 208, 255, 0.08));
+      box-shadow: 0 0 34px rgba(164, 107, 255, 0.22);
+      font-family: var(--font-display);
+      font-size: clamp(18px, 2.6vw, 26px);
+      line-height: 1.3;
+      text-align: center;
+    }
+    .callout em { font-style: normal; color: var(--gold); }
+
+    /* ---------- seasons ---------- */
+    .seasons { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 980px) { .seasons { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .season { display: flex; flex-direction: column; position: relative; }
+    .season-strip {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      gap: clamp(8px, 2vw, 16px);
+      padding: clamp(18px, 3vw, 30px) clamp(12px, 3vw, 24px);
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      align-items: center;
+    }
+    .season-strip .shot { width: calc((100% - 2 * clamp(8px, 2vw, 16px)) / 3); max-width: 190px; }
+    .season-strip .shot:nth-child(2) { transform: translateY(-10px); }
+    .season-body { padding: 24px 24px 28px; display: flex; flex-direction: column; flex: 1; }
+    .season-meta { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .season-num { font-family: var(--font-pixel); font-size: 13px; letter-spacing: 0.14em; color: var(--muted); }
+    .season h3 { font-size: clamp(24px, 3vw, 32px); margin-bottom: 12px; }
+    .season p { color: var(--muted); margin: 0 0 12px; }
+    .season ul { margin: 4px 0 18px; padding-left: 0; list-style: none; color: var(--text); }
+    .season li { position: relative; padding-left: 22px; margin-bottom: 8px; font-size: 16px; }
+    .season li::before { content: ''; position: absolute; left: 2px; top: 0.6em; width: 9px; height: 9px; }
+    .season-actions { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px; padding-top: 8px; }
+    .text-link { font-family: var(--font-pixel); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+
+    .season-1 { border-color: rgba(255, 201, 60, 0.55); box-shadow: 0 0 40px rgba(255, 201, 60, 0.12); }
+    .season-1 .season-strip {
+      background:
+        radial-gradient(ellipse at 50% 120%, rgba(255, 201, 60, 0.35), rgba(255, 201, 60, 0) 60%),
+        linear-gradient(160deg, #2a1650, #120a24);
+    }
+    .season-1 .badge { color: var(--slime); background: rgba(116, 240, 74, 0.12); border: 1px solid rgba(116, 240, 74, 0.5); }
+    .season-1 li::before { background: var(--gold); }
+
+    .season-2 { border-color: rgba(191, 233, 255, 0.4); background: linear-gradient(180deg, rgba(14, 22, 44, 0.92), rgba(18, 10, 36, 0.92)); }
+    .season-2 .season-strip {
+      background:
+        radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.5) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 78% 12%, rgba(255, 255, 255, 0.4) 0 1px, transparent 1.5px),
+        radial-gradient(circle at 40% 70%, rgba(255, 255, 255, 0.35) 0 1.5px, transparent 2px),
+        radial-gradient(circle at 90% 80%, rgba(255, 255, 255, 0.45) 0 1px, transparent 1.5px),
+        radial-gradient(circle at 60% 35%, rgba(255, 255, 255, 0.3) 0 1px, transparent 1.5px),
+        radial-gradient(ellipse at 50% 120%, rgba(34, 177, 76, 0.4), rgba(214, 40, 40, 0.12) 45%, rgba(0, 0, 0, 0) 70%),
+        linear-gradient(160deg, #0f2238, #0b0716);
+      background-size: 120px 120px, 160px 160px, 140px 140px, 180px 180px, 110px 110px, 100% 100%, 100% 100%;
+    }
+    .season-2 .season-strip .shot { filter: saturate(0.85) brightness(0.9); border-color: rgba(191, 233, 255, 0.35); }
+    .season-2 .season-strip::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 50%, rgba(11, 7, 22, 0) 45%, rgba(11, 7, 22, 0.75) 100%);
+      pointer-events: none;
+    }
+    .season-2 .badge { color: var(--frost); background: rgba(191, 233, 255, 0.1); border: 1px solid rgba(191, 233, 255, 0.45); }
+    .season-2 li::before { background: var(--holly); box-shadow: 4px 4px 0 var(--xmas-red); width: 7px; height: 7px; }
+    .season-2 .season-num { color: var(--frost); }
+    .soon {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      border: 2px dashed rgba(191, 233, 255, 0.5);
+      color: var(--frost);
+      font-family: var(--font-display);
+      font-size: 16px;
+      cursor: default;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .season-2 .badge::before { animation: blink 1.6s steps(2, start) infinite; }
+    }
+    @keyframes blink { to { opacity: 0.2; } }
+
+    /* ---------- video ---------- */
+    .video-shell {
+      max-width: 940px;
+      margin: 0 auto;
+      padding: 8px;
+      border-radius: 18px;
+      background: linear-gradient(160deg, var(--blue), var(--purple));
+      box-shadow: 0 0 50px rgba(63, 208, 255, 0.2);
+    }
+    .video-frame { position: relative; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; background: #000; }
+    .video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+    .video-poster {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+      border: 0;
+      background:
+        radial-gradient(ellipse at 50% 50%, rgba(164, 107, 255, 0.45), rgba(164, 107, 255, 0) 70%),
+        linear-gradient(160deg, #241245, #0b0716);
+      cursor: pointer;
+    }
+    .video-poster img { width: 100%; height: 100%; object-fit: contain; }
+    .video-poster .play-glyph {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: clamp(64px, 11vw, 92px);
+      height: clamp(64px, 11vw, 92px);
+      transform: translate(-50%, -50%);
+      border-radius: 50%;
+      background: rgba(11, 7, 22, 0.82);
+      border: 3px solid var(--gold);
+      display: grid;
+      place-items: center;
+      box-shadow: 0 0 30px rgba(255, 201, 60, 0.45);
+      transition: transform 0.15s ease;
+    }
+    .video-poster:hover .play-glyph, .video-poster:focus-visible .play-glyph { transform: translate(-50%, -50%) scale(1.08); }
+    .video-poster .play-glyph svg { width: 42%; height: 42%; margin-left: 8%; fill: var(--gold); }
+    .video-poster:focus-visible { outline-offset: -6px; }
+    .video-fallback { text-align: center; margin: 18px 0 0; color: var(--muted); font-size: 15px; }
+
+    /* ---------- flip-phone factor ---------- */
+    .factor { display: grid; gap: clamp(32px, 5vw, 64px); grid-template-columns: minmax(0, 1fr); align-items: center; }
+    @media (min-width: 900px) { .factor { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); } }
+    .factor-copy > p { color: var(--muted); font-size: 18px; max-width: 58ch; margin: 16px 0 26px; }
+    .features { display: grid; gap: 14px; list-style: none; padding: 0; margin: 0; }
+    .features li {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      padding: 16px 18px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    .features .ico {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: #07040f;
+      border: 1px solid var(--line-bright);
+      font-family: var(--font-display);
+      font-size: 20px;
+      color: var(--gold);
+    }
+    .features h3 { font-family: var(--font-body); font-weight: 700; font-size: 17px; margin: 2px 0 4px; letter-spacing: 0; }
+    .features p { margin: 0; color: var(--muted); font-size: 15px; }
+
+    /* A generic KaiOS candybar silhouette drawn in CSS -- deliberately not a
+       photo of any particular handset; the screen is a real screenshot. */
+    .phone {
+      justify-self: center;
+      width: 230px;
+      padding: 18px 16px 20px;
+      border-radius: 34px 34px 40px 40px;
+      background: linear-gradient(180deg, #2a2340, #151022);
+      border: 2px solid #3d3360;
+      box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6), 0 0 60px rgba(164, 107, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+    .phone .speaker { width: 52px; height: 6px; border-radius: 3px; background: #0a0714; margin: 0 auto 14px; }
+    .phone .screen { border-radius: 6px; overflow: hidden; border: 3px solid #07040f; }
+    .phone .screen img { width: 100%; height: auto; aspect-ratio: 3 / 4; image-rendering: pixelated; }
+    .phone .dpad { display: flex; justify-content: space-between; align-items: center; margin: 16px 4px 12px; }
+    .phone .soft { width: 40px; height: 12px; border-radius: 6px; background: #3a3058; }
+    .phone .ring { width: 58px; height: 40px; border-radius: 20px; border: 3px solid #3a3058; display: grid; place-items: center; }
+    .phone .ring::after { content: ''; width: 20px; height: 14px; border-radius: 6px; background: #3a3058; }
+    .phone .pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .phone .pad span {
+      height: 26px;
+      border-radius: 8px;
+      background: #241c3a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font-family: var(--font-display);
+      font-size: 12px;
+      color: var(--text);
+    }
+    .phone .pad span small { font-family: var(--font-pixel); font-size: 7px; color: var(--dim); }
+
+    /* ---------- gallery ---------- */
+    .gallery {
+      display: grid;
+      grid-auto-flow: column;
+      /* Never narrower than the 240px native capture on desktop, so the
+         pixel-perfect screenshots stay inspectable; scrolls sideways. */
+      grid-auto-columns: clamp(220px, 30vw, 380px);
+      gap: 18px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      padding: 4px 4px 18px;
+      margin: 0 -4px;
+      scrollbar-color: var(--line-bright) transparent;
+    }
+    @media (max-width: 560px) { .gallery { grid-auto-columns: 78%; } }
+    .gallery figure {
+      margin: 0;
+      scroll-snap-align: center;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .gallery img { width: 100%; height: auto; aspect-ratio: 3 / 4; image-rendering: pixelated; border-radius: 6px; background: #111; }
+    .gallery figcaption { margin-top: 10px; }
+    .gallery figcaption .label { display: block; color: var(--blue); font-size: 11px; }
+    .gallery figcaption span:last-child { color: var(--muted); font-size: 14px; }
+
+    /* ---------- final cta ---------- */
+    .final {
+      position: relative;
+      text-align: center;
+      padding: clamp(36px, 6vw, 64px) clamp(20px, 5vw, 56px);
+      border-radius: 22px;
+      border: 2px solid var(--gold);
+      background:
+        radial-gradient(ellipse at 50% 0%, rgba(164, 107, 255, 0.35), rgba(164, 107, 255, 0) 65%),
+        var(--panel-solid);
+      box-shadow: 0 0 60px rgba(255, 201, 60, 0.18), inset 0 0 40px rgba(164, 107, 255, 0.15);
+      overflow: hidden;
+    }
+    .final h2 { font-size: clamp(30px, 5.4vw, 58px); color: var(--gold); text-shadow: 0 3px 0 var(--gold-deep); }
+    .final p { color: var(--muted); font-size: 18px; max-width: 46ch; margin: 16px auto 0; }
+    .final .cta-row { justify-content: center; }
+    .final-bricks { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 22px; }
+    .final-bricks span {
+      font-family: ui-monospace, 'Courier New', monospace;
+      font-size: 13px;
+      color: #fff;
+      padding: 3px 10px;
+      border-radius: 3px;
+      clip-path: var(--pixel-corner);
+    }
+
+    /* ---------- footer ---------- */
+    .site-footer { border-top: 1px solid var(--line); background: rgba(7, 4, 15, 0.92); padding: 36px 0 44px; }
+    .site-footer .wrap { display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 760px) { .site-footer .wrap { grid-template-columns: minmax(0, 1fr) auto; align-items: end; } }
+    .site-footer p { margin: 8px 0 0; color: var(--muted); font-size: 15px; }
+    .site-footer nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; }
+    .site-footer nav a { font-size: 15px; }
+    .copyright { font-size: 13px !important; color: var(--dim) !important; }
+
+    /* ---------- play notice (non-KaiOS visitors) ---------- */
+    .play-note {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      z-index: 40;
+      width: min(560px, calc(100% - 2 * var(--gutter)));
+      transform: translate(-50%, 0);
+      padding: 18px 20px;
+      border-radius: 14px;
+      background: #1a1030;
+      border: 2px solid var(--gold);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6), 0 0 30px rgba(255, 201, 60, 0.25);
+    }
+    .play-note[hidden] { display: none; }
+    .play-note h2 { font-size: 18px; color: var(--gold); margin-bottom: 6px; }
+    .play-note p { margin: 0 0 14px; color: var(--muted); font-size: 15px; }
+    .play-note .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .play-note .btn { min-height: 40px; padding: 8px 14px; font-size: 14px; }
+
+    /* Tiny KaiOS-browser-sized screens (240px wide): keep everything legible. */
+    @media (max-width: 360px) {
+      :root { --gutter: 12px; }
+      body { font-size: 16px; }
+      .btn { width: 100%; }
+      .logo { font-size: 17px; }
+      .mini-pad { grid-template-columns: repeat(3, 48px); }
+      .step-media { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <canvas id="bricks" aria-hidden="true"></canvas>
+  <div class="veil" aria-hidden="true"></div>
+
+  <div class="page">
+    <header class="site-header">
+      <div class="wrap">
+        <a class="logo" href="#top" aria-label="T9 Wizard, back to top">
+          <img src="images/icon-56.png" width="32" height="32" alt="" />
+          T9 WIZARD
+        </a>
+        <a class="btn header-play js-play" href="#video">Play Now</a>
+        <nav class="nav" aria-label="Primary">
+          <a href="#how-to-play">How to Play</a>
+          <a href="#seasons">Seasons</a>
+          <a href="#video">Gameplay Video</a>
+          <a class="btn js-play" href="#video">Play Now</a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- ================= HERO ================= -->
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="wrap">
+          <div class="hero-copy">
+            <span class="eyebrow">A KaiOS arcade game</span>
+            <h1 id="hero-title">T9 Wizard</h1>
+            <p class="tagline"><span>Type fast.</span> <span>Cast spells.</span> <span>Survive the onslaught.</span></p>
+            <p>A typing-action game built for the humble flip phone. Use your T9 keypad to type incoming words, unleash magic, and see how long you can survive.</p>
+            <p class="punch">No gaming PC. No touchscreen combos. Just you, your keypad, and your typing skills.</p>
+            <div class="cta-row">
+              <a class="btn js-play" href="#video">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm1 3v5h8V7H8zm0 7v2h2v-2H8zm3 0v2h2v-2h-2zm3 0v2h2v-2h-2z"/></svg>
+                Play T9 Wizard
+              </a>
+              <a class="btn btn-ghost" href="#video">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l11-6.5z"/></svg>
+                Watch Gameplay
+              </a>
+            </div>
+
+            <div class="t9-demo">
+              <p class="sr-only">Example: on a T9 keypad, the word wizard is typed as 9 4 9 2 7 3.</p>
+              <div class="keys" aria-hidden="true">
+                <span class="key" data-digit="2"><b>2</b><small>ABC</small></span>
+                <span class="key" data-digit="3"><b>3</b><small>DEF</small></span>
+                <span class="key" data-digit="4"><b>4</b><small>GHI</small></span>
+                <span class="key" data-digit="5"><b>5</b><small>JKL</small></span>
+                <span class="key" data-digit="6"><b>6</b><small>MNO</small></span>
+                <span class="key" data-digit="7"><b>7</b><small>PQRS</small></span>
+                <span class="key" data-digit="8"><b>8</b><small>TUV</small></span>
+                <span class="key" data-digit="9"><b>9</b><small>WXYZ</small></span>
+              </div>
+              <div class="readout" aria-hidden="true"><span class="code">949273</span> → <span class="typed">wizard</span></div>
+            </div>
+          </div>
+
+          <div class="hero-art">
+            <div class="frame">
+              <img
+                src="images/hero-1200.jpg"
+                srcset="images/hero-640.jpg 640w, images/hero-1200.jpg 1200w"
+                sizes="(min-width: 900px) 560px, 92vw"
+                width="1200" height="1200"
+                fetchpriority="high"
+                alt="A panicked wizard clutches a glowing T9 keypad spellbook as word blocks reading Wizard, Spell, Fireball, Magic and Danger rain down among slime monsters." />
+            </div>
+            <span class="hud-chip lives" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span class="hud-chip score" aria-hidden="true">SCORE <b>76633</b></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= HOW TO PLAY ================= -->
+      <section class="section" id="how-to-play" aria-labelledby="how-title">
+        <div class="wrap">
+          <div class="section-head">
+            <span class="eyebrow">How to play</span>
+            <h2 class="section-title" id="how-title">Three steps to wizardry</h2>
+            <p>Blocks carrying words fall toward you. Type each word on the keypad before it lands.</p>
+          </div>
+
+          <div class="steps">
+            <article class="card step">
+              <div class="step-media">
+                <img class="shot" src="images/season1-01.png" width="240" height="320" loading="lazy"
+                  alt="Gameplay: green word blocks labelled how, wage, last and guru fall toward the player, with guru locked on and half typed." />
+              </div>
+              <div class="step-body">
+                <span class="step-num">STEP 01</span>
+                <h3>Words incoming</h3>
+                <p>Every enemy is a block carrying a word, falling toward the grey block at the bottom of the screen: you. Destroy it before it gets there.</p>
+              </div>
+            </article>
+
+            <article class="card step">
+              <div class="step-media" style="flex-direction: column;">
+                <div class="mini-pad" aria-hidden="true">
+                  <span class="key dim"><b>1</b><small>&nbsp;</small></span>
+                  <span class="key hit"><b>2</b><small>ABC</small></span>
+                  <span class="key hit"><b>3</b><small>DEF</small></span>
+                  <span class="key hit"><b>4</b><small>GHI</small></span>
+                  <span class="key"><b>5</b><small>JKL</small></span>
+                  <span class="key"><b>6</b><small>MNO</small></span>
+                  <span class="key hit"><b>7</b><small>PQRS</small></span>
+                  <span class="key"><b>8</b><small>TUV</small></span>
+                  <span class="key hit"><b>9</b><small>WXYZ</small></span>
+                </div>
+                <p class="word-code" aria-hidden="true"><b>wizard</b> = <i>9 4 9 2 7 3</i></p>
+              </div>
+              <div class="step-body">
+                <span class="step-num">STEP 02</span>
+                <h3>Work your T9 magic</h3>
+                <p>Press each letter's number key once, so <strong>wizard</strong> is <strong>949273</strong>. Your first key locks onto a matching word. Finish its code to blast it.</p>
+                <p>Once you're locked on, wrong keys are simply ignored, so stay calm and keep typing.</p>
+              </div>
+            </article>
+
+            <article class="card step">
+              <div class="step-media">
+                <ul class="stat-list" aria-label="A full run at a glance">
+                  <li><b>3</b><span>LIVES</span></li>
+                  <li><b>5</b><span>WORLDS</span></li>
+                  <li><b>50</b><span>WAVES</span></li>
+                  <li><b>5</b><span>BOSSES</span></li>
+                </ul>
+              </div>
+              <div class="step-body">
+                <span class="step-num">STEP 03</span>
+                <h3>Survive the onslaught</h3>
+                <p>Let a word reach you and you lose a life. Clear ten waves to face the world's boss, then type whole sentences to chip it down. Words get longer every world.</p>
+                <p>Flawless words grow your score multiplier. Grab rising powerups for extra lives and more.</p>
+              </div>
+            </article>
+          </div>
+
+          <p class="callout">Your flip phone is the <em>controller</em>. Your typing is the <em>weapon</em>.</p>
+        </div>
+      </section>
+
+      <!-- ================= SEASONS ================= -->
+      <section class="section" id="seasons" aria-labelledby="seasons-title">
+        <div class="wrap">
+          <div class="section-head">
+            <span class="eyebrow">Seasons</span>
+            <h2 class="section-title" id="seasons-title">Two seasons. One tiny keypad. A whole lot of words.</h2>
+            <p>Each season brings its own leaderboard, so every season is a fresh shot at the top spot.</p>
+          </div>
+
+          <div class="seasons">
+            <article class="card season season-1" aria-labelledby="s1-title">
+              <div class="season-strip">
+                <img class="shot" src="images/season1-02.png" width="240" height="320" loading="lazy"
+                  alt="Season 1, World 3: a crowd of gold and orange word blocks such as prayer, museum, gossip and chamber." />
+                <img class="shot" src="images/season1-04.png" width="240" height="320" loading="lazy"
+                  alt="Season 1, World 5 boss: a long pink boss block with a falling sentence from Moby Dick, partly typed." />
+                <img class="shot" src="images/season1-05.png" width="240" height="320" loading="lazy"
+                  alt="Season 1 win screen: YOU WIN, all 5 worlds cleared, score 76633." />
+              </div>
+              <div class="season-body">
+                <div class="season-meta">
+                  <span class="season-num">SEASON 01</span>
+                  <span class="badge">AVAILABLE</span>
+                </div>
+                <h3 id="s1-title">The Beginning</h3>
+                <p>Where every T9 Wizard starts. Learn the keypad, build your multiplier, and fight your way through the full run.</p>
+                <ul>
+                  <li>Five worlds of ten waves, with words growing from two letters to twelve</li>
+                  <li>A typing boss at the end of every world, quoting classic novels</li>
+                  <li>A global leaderboard of the best Season 1 runs</li>
+                </ul>
+                <div class="season-actions">
+                  <a class="btn js-play" href="#video">Play Season 1</a>
+                  <a class="text-link" href="https://elliscode.com/t9-wizard/leaderboard.html">Season 1 leaderboard →</a>
+                </div>
+              </div>
+            </article>
+
+            <article class="card season season-2" aria-labelledby="s2-title">
+              <div class="season-strip">
+                <img class="shot" src="images/season2-a.png" width="240" height="320" loading="lazy"
+                  alt="Season 2, World 1: green word blocks, with noel locked on and half typed." />
+                <img class="shot" src="images/season2-boss.png" width="240" height="320" loading="lazy"
+                  alt="Season 2, World 2 boss: a gold boss block over the sentence they invented the art of giving christmas presents, partly typed." />
+                <img class="shot" src="images/season2-b.png" width="240" height="320" loading="lazy"
+                  alt="Season 2, World 3: red and orange holiday words such as merriment, candycane, nativity and holidays, with fireplace locked on." />
+              </div>
+              <div class="season-body">
+                <div class="season-meta">
+                  <span class="season-num">SEASON 02</span>
+                  <span class="badge">COMING SOON</span>
+                </div>
+                <h3 id="s2-title">The Next Challenge</h3>
+                <p>The next chapter is on its way. Sharpen your typing skills, prepare your keypad, and get ready for more magical mayhem. This time, it's a holiday season.</p>
+                <ul>
+                  <li>Christmas words join the horde: sleigh, mistletoe, gingerbread and hundreds more</li>
+                  <li>Enemies glow evergreen to Christmas red as the words get longer</li>
+                  <li>New powerups: Multiplier Shield, Bonus Words and Time Freeze</li>
+                  <li>Bosses quote <cite>A Christmas Carol</cite>, <cite>The Gift of the Magi</cite> and <cite>'Twas the Night Before Christmas</cite></li>
+                  <li>A brand-new leaderboard</li>
+                </ul>
+                <div class="season-actions">
+                  <span class="soon" role="note">❄ Season 2 Coming Soon</span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= VIDEO ================= -->
+      <section class="section" id="video" aria-labelledby="video-title">
+        <div class="wrap">
+          <div class="section-head" style="text-align: center;">
+            <span class="eyebrow">Gameplay video</span>
+            <h2 class="section-title" id="video-title" style="margin: 0 auto;">See the magic in action</h2>
+            <p style="margin-left: auto; margin-right: auto;">Watch T9 Wizard turn a humble flip-phone keypad into an arcade challenge.</p>
+          </div>
+          <div class="video-shell">
+            <div class="video-frame" id="video-frame">
+              <button class="video-poster" type="button" id="video-poster" aria-label="Play the T9 Wizard gameplay video">
+                <img src="images/hero-640.jpg" width="640" height="640" loading="lazy" alt="" />
+                <span class="play-glyph" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 4v16l14-8z"/></svg></span>
+              </button>
+            </div>
+          </div>
+          <p class="video-fallback">Video not loading? <a href="https://www.youtube.com/watch?v=vKPr1BCMCac" target="_blank" rel="noopener">Watch it on YouTube</a>.</p>
+        </div>
+      </section>
+
+      <!-- ================= FLIP-PHONE FACTOR ================= -->
+      <section class="section" id="flip-phone" aria-labelledby="factor-title">
+        <div class="wrap factor">
+          <div class="factor-copy">
+            <span class="eyebrow">The flip-phone factor</span>
+            <h2 class="section-title" id="factor-title" style="margin-top: 12px;">Built for the buttons. Not the touchscreen.</h2>
+            <p>T9 Wizard brings fast-paced typing gameplay to KaiOS flip phones. Instead of tapping a screen or reaching for a full keyboard, you play with the physical keypad already in your hand.</p>
+            <ul class="features">
+              <li>
+                <span class="ico" aria-hidden="true">9</span>
+                <div><h3>Physical T9 controls</h3><p>Every word is typed with the 2–9 keys. The whole game is designed around the keypad.</p></div>
+              </li>
+              <li>
+                <span class="ico" aria-hidden="true">!</span>
+                <div><h3>Typing under pressure</h3><p>React fast as words descend. The words get longer and the screen gets busier world after world.</p></div>
+              </li>
+              <li>
+                <span class="ico" aria-hidden="true">★</span>
+                <div><h3>Made for KaiOS</h3><p>A game built for the flip-phone ecosystem and published on the KaiStore.</p></div>
+              </li>
+            </ul>
+          </div>
+
+          <div class="phone" aria-hidden="true">
+            <div class="speaker"></div>
+            <div class="screen"><img src="images/season1-03.png" width="240" height="320" loading="lazy" alt="" /></div>
+            <div class="dpad"><span class="soft"></span><span class="ring"></span><span class="soft"></span></div>
+            <div class="pad">
+              <span>1</span><span>2<small>ABC</small></span><span>3<small>DEF</small></span>
+              <span>4<small>GHI</small></span><span>5<small>JKL</small></span><span>6<small>MNO</small></span>
+              <span>7<small>PQRS</small></span><span>8<small>TUV</small></span><span>9<small>WXYZ</small></span>
+              <span>*</span><span>0</span><span>#</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= GALLERY ================= -->
+      <section class="section" id="screenshots" aria-labelledby="gallery-title">
+        <div class="wrap">
+          <div class="section-head">
+            <span class="eyebrow">Screenshots</span>
+            <h2 class="section-title" id="gallery-title">Straight from the keypad</h2>
+            <p>Real captures from Season 1 on KaiOS, from the first wave to the final boss.</p>
+          </div>
+          <div class="gallery" tabindex="0" aria-label="Screenshot gallery, scrolls sideways">
+            <figure>
+              <img src="images/season1-01.png" width="240" height="320" loading="lazy" alt="World 1: short green words, with guru locked on and half typed." />
+              <figcaption><span class="label">World 1 · Lock-on</span><span>Short words, first waves</span></figcaption>
+            </figure>
+            <figure>
+              <img src="images/season1-02.png" width="240" height="320" loading="lazy" alt="World 3: a screen crowded with gold and orange word blocks." />
+              <figcaption><span class="label">World 3 · The horde</span><span>The screen fills up fast</span></figcaption>
+            </figure>
+            <figure>
+              <img src="images/season1-03.png" width="240" height="320" loading="lazy" alt="World 4: long red and pink words such as researcher, replacement and calculator." />
+              <figcaption><span class="label">World 4 · Long words</span><span>Ten letters and up</span></figcaption>
+            </figure>
+            <figure>
+              <img src="images/season1-04.png" width="240" height="320" loading="lazy" alt="World 5 boss: a sentence from Moby Dick falls beneath the boss block." />
+              <figcaption><span class="label">World 5 · Boss</span><span>Type the whole sentence</span></figcaption>
+            </figure>
+            <figure>
+              <img src="images/season1-05.png" width="240" height="320" loading="lazy" alt="The YOU WIN screen after clearing all five worlds, score 76633." />
+              <figcaption><span class="label">Victory</span><span>All five worlds cleared</span></figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= FINAL CTA ================= -->
+      <section class="section" id="play" aria-labelledby="final-title">
+        <div class="wrap">
+          <div class="final">
+            <div class="final-bricks" aria-hidden="true">
+              <span style="background:#3bbd3b">spell</span>
+              <span style="background:#c9a21a">shadow</span>
+              <span style="background:#d9731c">fireball</span>
+              <span style="background:#22b14c">wizard</span>
+              <span style="background:#d62828">danger</span>
+              <span style="background:#c0207a">magic</span>
+            </div>
+            <h2 id="final-title">Think you can keep up?</h2>
+            <p>Grab your flip phone, fire up T9 Wizard, and prove that a number pad is all you need.</p>
+            <div class="cta-row">
+              <a class="btn js-play" href="#video">Play T9 Wizard</a>
+              <a class="btn btn-ghost" href="#video">Watch the Trailer</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <div>
+          <a class="logo" href="#top"><img src="images/icon-56.png" width="32" height="32" alt="" />T9 WIZARD</a>
+          <p>A typing-action game for KaiOS flip phones.</p>
+          <p class="copyright">© 2026 elliscode</p>
+        </div>
+        <nav aria-label="Footer">
+          <ul>
+            <li><a href="https://www.youtube.com/watch?v=vKPr1BCMCac" target="_blank" rel="noopener">Gameplay video</a></li>
+            <li><a class="js-play" href="#video">Get it on the KaiStore</a></li>
+            <li><a href="https://elliscode.com/t9-wizard/leaderboard.html">Season 1 leaderboard</a></li>
+            <li><a href="https://www.elliscode.com/">elliscode.com</a></li>
+            <li><a href="https://github.com/elliscode" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </nav>
+      </div>
+    </footer>
+  </div>
+
+  <div class="play-note" id="play-note" role="dialog" aria-modal="false" aria-labelledby="play-note-title" hidden>
+    <h2 id="play-note-title">Get T9 Wizard on the KaiStore</h2>
+    <p id="play-note-text">T9 Wizard installs from the KaiStore. Open this page on your KaiOS phone to install it.</p>
+    <div class="actions">
+      <a class="btn" href="#video" id="play-note-video">Watch gameplay</a>
+      <button class="btn btn-ghost" type="button" id="play-note-close">Close</button>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    // ---------------------------------------------------------------- play
+    // The KaiStore app ID is the hash at the end of the store's manifest URL
+    // (https://api.kaiostech.com/apps/manifest/<ID>) -- the same appId the
+    // KaiOS submission portal shows in its URL for T9 Wizard. KaiOS visitors'
+    // Play buttons open the store page directly via the open-page activity
+    // (WebActivity on KaiOS 3.x, MozActivity on 2.5). Everyone else gets the
+    // "open this on your phone" note, since neither API exists off KaiOS.
+    var KAISTORE_APP_ID = 'guZd4_yQSHPCxHq7WjLY';
+    var STORE_PAGE_URL = 'https://api.kaiostech.com/apps/manifest/' + KAISTORE_APP_ID;
+    var isKaiOS = typeof WebActivity !== 'undefined' || typeof MozActivity !== 'undefined';
+
+    var note = document.getElementById('play-note');
+    var noteText = document.getElementById('play-note-text');
+    var lastTrigger = null;
+
+    function openStorePage(trigger) {
+      if (!KAISTORE_APP_ID || !isKaiOS) return false;
+      var data = { type: 'url', url: STORE_PAGE_URL };
+      try {
+        if (typeof WebActivity !== 'undefined') {
+          // start() returns a Promise; fall back to the note if the store
+          // refuses (or the activity isn't supported on this build).
+          var started = new WebActivity('open-page', data).start();
+          if (started && started.catch) started.catch(function () { showNote(trigger); });
+        } else {
+          new MozActivity({ name: 'open-page', data: data });
+        }
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function showNote(trigger) {
+      noteText.textContent = isKaiOS
+        ? 'Open the KaiStore on this phone and search for “T9 Wizard” to install it.'
+        : 'T9 Wizard installs from the KaiStore. Open this page on your KaiOS phone to install it.';
+      lastTrigger = trigger;
+      note.hidden = false;
+      document.getElementById('play-note-close').focus();
+    }
+    function hideNote() {
+      note.hidden = true;
+      if (lastTrigger) lastTrigger.focus();
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('.js-play'), function (el) {
+      el.addEventListener('click', function (e) {
+        e.preventDefault();
+        if (!openStorePage(el)) showNote(el);
+      });
+    });
+    document.getElementById('play-note-close').addEventListener('click', hideNote);
+    document.getElementById('play-note-video').addEventListener('click', function () { note.hidden = true; });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !note.hidden) hideNote();
+    });
+
+    // --------------------------------------------------------------- video
+    // Click-to-load, privacy-enhanced embed: nothing from YouTube loads (and
+    // nothing plays) until the visitor actually presses play.
+    var poster = document.getElementById('video-poster');
+    poster.addEventListener('click', function () {
+      var iframe = document.createElement('iframe');
+      iframe.src = 'https://www.youtube-nocookie.com/embed/vKPr1BCMCac?autoplay=1&rel=0';
+      iframe.title = 'T9 Wizard gameplay video';
+      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture';
+      iframe.allowFullscreen = true;
+      poster.replaceWith(iframe);
+      iframe.focus();
+    });
+
+    var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    // ---------------------------------------------------- hero T9 demo
+    var T9 = { a: 2, b: 2, c: 2, d: 3, e: 3, f: 3, g: 4, h: 4, i: 4, j: 5, k: 5, l: 5, m: 6, n: 6, o: 6,
+      p: 7, q: 7, r: 7, s: 7, t: 8, u: 8, v: 8, w: 9, x: 9, y: 9, z: 9 };
+    var demoWords = ['wizard', 'spell', 'fireball', 'magic', 'sleigh', 'danger'];
+    var keyEls = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.keys .key'), function (k) { keyEls[k.dataset.digit] = k; });
+    var codeEl = document.querySelector('.readout .code');
+    var typedEl = document.querySelector('.readout .typed');
+    var demoTimer = null;
+
+    function runDemo() {
+      var w = 0, i = 0;
+      function step() {
+        var word = demoWords[w];
+        Object.keys(keyEls).forEach(function (d) { keyEls[d].classList.remove('lit'); });
+        if (i < word.length) {
+          var digit = String(T9[word[i]]);
+          keyEls[digit].classList.add('lit');
+          i++;
+          codeEl.textContent = word.slice(0, i).split('').map(function (c) { return T9[c]; }).join('');
+          typedEl.textContent = word.slice(0, i);
+          demoTimer = setTimeout(step, 340);
+        } else {
+          w = (w + 1) % demoWords.length;
+          i = 0;
+          demoTimer = setTimeout(step, 1300);
+        }
+      }
+      step();
+    }
+    function stopDemo() {
+      clearTimeout(demoTimer);
+      Object.keys(keyEls).forEach(function (d) { keyEls[d].classList.remove('lit'); });
+      codeEl.textContent = '949273';
+      typedEl.textContent = 'wizard';
+    }
+
+    // ------------------------------------------------ falling word bricks
+    // Drawn the way the game draws its enemies (frontend-v3/js/render.js): a
+    // solid colored block with its word underneath on a dim backing panel,
+    // colored by word length using each season's real gradient
+    // (frontend-v3/js/colors.js). One canvas, a dozen-ish bricks, a few
+    // sparks off the "danger" ones -- cheap enough for a low-end phone.
+    var S1_ANCHORS = [[2, [211, 211, 211]], [4, [50, 205, 50]], [6, [255, 215, 0]], [8, [255, 140, 0]], [10, [220, 20, 60]], [12, [255, 20, 147]]];
+    var S2_ANCHORS = [[2, [144, 238, 144]], [4, [34, 177, 76]], [6, [218, 165, 32]], [8, [230, 92, 40]], [10, [214, 40, 40]], [12, [170, 10, 30]]];
+    function colorFor(len, anchors) {
+      var n = Math.max(2, Math.min(12, len));
+      for (var i = 0; i < anchors.length - 1; i++) {
+        var lo = anchors[i], hi = anchors[i + 1];
+        if (n >= lo[0] && n <= hi[0]) {
+          var t = (n - lo[0]) / (hi[0] - lo[0]);
+          return 'rgb(' + [0, 1, 2].map(function (c) { return Math.round(lo[1][c] + (hi[1][c] - lo[1][c]) * t); }).join(',') + ')';
+        }
+      }
+      return 'rgb(255,255,255)';
+    }
+    var S1_WORDS = ['spell', 'shadow', 'fireball', 'wizard', 'danger', 'magic', 'guru', 'wage', 'prayer', 'museum',
+      'village', 'gossip', 'chamber', 'ancient', 'calculator', 'researcher', 'installed', 'vegetable', 'potion', 'keypad'];
+    var S2_WORDS = ['yule', 'snow', 'sleigh', 'holly', 'eggnog', 'reindeer', 'mistletoe', 'gingerbread', 'tinsel', 'carol',
+      'snowflakes', 'nutcracker'];
+
+    var canvas = document.getElementById('bricks');
+    var ctx = canvas.getContext('2d');
+    var W = 0, H = 0, targetCount = 0, small = false;
+    var bricks = [];
+    var sparks = [];
+    var MAX_SPARKS = 36;
+    var rafId = null;
+    var lastT = 0;
+
+    function rand(a, b) { return a + Math.random() * (b - a); }
+
+    function makeBrick(y) {
+      var christmas = Math.random() < 0.35;
+      var list = christmas ? S2_WORDS : S1_WORDS;
+      var word = list[Math.floor(Math.random() * list.length)];
+      var danger = Math.random() < 0.1;
+      var scale = small ? rand(0.9, 1.2) : (danger ? rand(1.5, 1.9) : rand(1.05, 1.6));
+      var blockW = Math.max(28, word.length * 6 + 12) * scale;
+      var blockH = 18 * scale;
+      return {
+        word: word,
+        scale: scale,
+        w: blockW,
+        h: blockH,
+        x: pickX(blockW),
+        y: y,
+        speed: rand(14, 34) * (danger ? 1.4 : 1) * (small ? 0.8 : 1),
+        color: colorFor(word.length, christmas ? S2_ANCHORS : S1_ANCHORS),
+        alpha: danger ? 0.9 : rand(0.22, 0.46),
+        danger: danger,
+        glow: 0,
+        sparkIn: rand(0.1, 0.4)
+      };
+    }
+    // Same idea as the game's findNonOverlappingX: a few tries to avoid
+    // stacking on a brick that's still near the top.
+    function pickX(width) {
+      var x = 0;
+      for (var attempt = 0; attempt < 6; attempt++) {
+        x = Math.random() * Math.max(1, W - width);
+        var clash = bricks.some(function (b) { return b.y < 120 && x < b.x + b.w + 12 && x + width + 12 > b.x; });
+        if (!clash) break;
+      }
+      return x;
+    }
+
+    function resize() {
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      W = window.innerWidth;
+      H = window.innerHeight;
+      small = W < 520;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      targetCount = Math.max(5, Math.min(small ? 8 : 16, Math.round((W * H) / 75000)));
+      while (bricks.length < targetCount) bricks.push(makeBrick(rand(-60, H)));
+      if (bricks.length > targetCount) bricks.length = targetCount;
+    }
+
+    function drawBrick(b) {
+      var glow = b.glow > 0 ? Math.min(1, b.glow) : 0;
+      ctx.globalAlpha = Math.min(1, b.alpha + glow * 0.5);
+      ctx.fillStyle = b.color;
+      if (b.danger) {
+        ctx.shadowColor = b.color;
+        ctx.shadowBlur = 18;
+      }
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.shadowBlur = 0;
+      // Pixel-corner notches, like a chunky arcade tile.
+      var n = Math.max(2, Math.round(3 * b.scale));
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillRect(b.x, b.y, n, n);
+      ctx.fillRect(b.x + b.w - n, b.y, n, n);
+      ctx.fillRect(b.x, b.y + b.h - n, n, n);
+      ctx.fillRect(b.x + b.w - n, b.y + b.h - n, n, n);
+      ctx.globalCompositeOperation = 'source-over';
+
+      var size = Math.round(12 * b.scale);
+      ctx.font = size + 'px ui-monospace, "Courier New", monospace';
+      var tw = ctx.measureText(b.word).width;
+      var tx = b.x + b.w / 2 - tw / 2;
+      var ty = b.y + b.h + 2;
+      ctx.fillStyle = 'rgba(11,7,22,0.6)';
+      ctx.fillRect(tx - 3, ty, tw + 6, size + 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.textBaseline = 'top';
+      ctx.fillText(b.word, tx, ty + 1);
+    }
+
+    function drawFrame() {
+      ctx.clearRect(0, 0, W, H);
+      for (var i = 0; i < bricks.length; i++) drawBrick(bricks[i]);
+      ctx.globalAlpha = 1;
+      for (var s = 0; s < sparks.length; s++) {
+        var p = sparks[s];
+        ctx.globalAlpha = Math.max(0, p.life / p.max) * 0.9;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    function update(dt) {
+      for (var i = 0; i < bricks.length; i++) {
+        var b = bricks[i];
+        b.y += b.speed * dt;
+        if (b.glow > 0) b.glow -= dt * 1.5;
+        else if (!b.danger && Math.random() < dt * 0.04) b.glow = 1; // occasional flicker
+        if (b.danger && !small) {
+          b.sparkIn -= dt;
+          if (b.sparkIn <= 0 && sparks.length < MAX_SPARKS) {
+            b.sparkIn = rand(0.15, 0.4);
+            sparks.push({ x: b.x + Math.random() * b.w, y: b.y + Math.random() * b.h, vx: rand(-14, 14), vy: rand(-30, -10),
+              life: 0.9, max: 0.9, size: Math.random() < 0.5 ? 2 : 3, color: Math.random() < 0.5 ? '#ffc93c' : '#d9b8ff' });
+          }
+        }
+        if (b.y > H + 40) bricks[i] = makeBrick(-b.h - rand(20, 160));
+      }
+      for (var s = sparks.length - 1; s >= 0; s--) {
+        var p = sparks[s];
+        p.life -= dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        if (p.life <= 0) sparks.splice(s, 1);
+      }
+    }
+
+    function loop(t) {
+      rafId = requestAnimationFrame(loop);
+      var elapsed = t - lastT;
+      // ~30fps on small screens is plenty for slow-falling bricks.
+      if (small && elapsed < 32) return;
+      lastT = t;
+      update(Math.min(0.05, elapsed / 1000));
+      drawFrame();
+    }
+    function startAnimation() {
+      if (rafId !== null || reduceMotion.matches || document.hidden) return;
+      lastT = performance.now();
+      rafId = requestAnimationFrame(loop);
+    }
+    function stopAnimation() {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+
+    function applyMotionPreference() {
+      if (reduceMotion.matches) {
+        stopAnimation();
+        stopDemo();
+        sparks.length = 0;
+        drawFrame(); // one still frame of scattered bricks
+      } else {
+        stopDemo();
+        runDemo();
+        startAnimation();
+      }
+    }
+
+    resize();
+    applyMotionPreference();
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () { resize(); if (reduceMotion.matches) drawFrame(); }, 150);
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) stopAnimation(); else startAnimation();
+    });
+    if (reduceMotion.addEventListener) reduceMotion.addEventListener('change', applyMotionPreference);
+    else if (reduceMotion.addListener) reduceMotion.addListener(applyMotionPreference);
+  })();
+  </script>
+</body>
+</html>

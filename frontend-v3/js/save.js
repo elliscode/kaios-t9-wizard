@@ -45,9 +45,12 @@ var SaveGame = (function () {
       nextEntityId: state.nextEntityId,
       enemies: state.enemies,
       powerups: state.powerups,
+      bonusWords: state.bonusWords,
       boss: state.boss,
       halfSpeedRemainingMs: state.halfSpeedRemainingMs,
       halfLengthRemainingMs: state.halfLengthRemainingMs,
+      timeFreezeRemainingMs: state.timeFreezeRemainingMs,
+      multiplierShields: state.multiplierShields,
       usedSentences: state.usedSentences,
       // Every one of these three feeds directly into *when* things happen
       // tick-by-tick (spawnAccumulator controls exactly which tick the next

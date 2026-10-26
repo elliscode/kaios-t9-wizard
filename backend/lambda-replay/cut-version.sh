@@ -1,8 +1,8 @@
 #!/bin/bash
 # Freezes the current frontend-v3/js/ game logic as a new, immutable API
 # version snapshot under vendored/v<N>/. This is a deliberate, one-per-season
-# action -- NOT something releases do automatically (see dev-release.sh/
-# prod-release.sh, which just ship whatever's already been cut).
+# action -- NOT something releases do automatically (see release.sh,
+# which just ships whatever's already been cut).
 #
 # Usage: sh cut-version.sh <N> [--force]
 set -e

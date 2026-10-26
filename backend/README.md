@@ -17,7 +17,7 @@ Every endpoint lives under a `/api/v<N>/...` path — see "versioning" below.
    - `KNOWN_VERSIONS` — comma-separated list of API version numbers currently
      accepted, e.g. `1,2` (see "versioning" below)
 3. grant this lambda's execution role `lambda:InvokeFunction` on the replay lambda's ARN
-4. run the `sh dev-release.sh` (or `sh prod-release.sh`) script
+4. run the `sh release.sh` script
 5. set up an API gateway with an ANY method with proxy integration and set your lambda as the target of the lambda integration
 
 ## Replay Lambda (`lambda-replay/`)
@@ -31,13 +31,16 @@ calls it.
 2. no environment variables needed
 3. before releasing for the first time, cut at least one version (see
    "versioning" below): `cd lambda-replay && sh cut-version.sh 1`
-4. run `sh dev-release.sh` (or `sh prod-release.sh`)
+4. run `sh release.sh`
 
 # releasing
 
-`lambda/`: run `sh dev-release.sh` for the dev lambda, or `sh prod-release.sh` for prod.
+There's a single (prod) environment for each lambda -- no separate dev functions.
 
-`lambda-replay/`: same, from within `lambda-replay/` — ships whatever's
+`lambda/`: run `sh release.sh` from `backend/` (deploys `t9-wizard-api-prod`).
+
+`lambda-replay/`: `sh release.sh` from within `lambda-replay/` (deploys
+`t9-wizard-replay-prod`) — ships whatever's
 already under `vendored/` (every version cut so far). Does **not**
 auto-vendor the current `frontend-v3/js/` state; that's `cut-version.sh`'s
 job, and it's a deliberate, separate step (see "versioning").
@@ -56,7 +59,7 @@ v2/v3 have shipped and `frontend-v3/js/` has moved on.
    into `lambda-replay/vendored/v<N>/`. **Refuses to overwrite** an
    already-cut version (pass `--force` if you're certain — e.g. fixing a
    mistake before anyone's played that version yet).
-3. `sh dev-release.sh` / `sh prod-release.sh` (in `lambda-replay/`) — ships
+3. `sh release.sh` (in `lambda-replay/`) — ships
    the updated `vendored/` tree (every version, not just the new one) to the
    replay Lambda.
 4. Add `<N>` to the API Lambda's `KNOWN_VERSIONS` env var, redeploy the API

@@ -5,12 +5,13 @@ var Render = (function () {
   // Hardcoded, not derived from index.html's ?v= cache-busting query params --
   // bump this by hand alongside those on each release (a project-wide
   // find/replace already covers every ?v=X.Y.Z occurrence at once).
-  var GAME_VERSION = '3.1.10';
+  var GAME_VERSION = '3.2.0';
 
   function renderPlayField(ctx, state) {
     // Brief dark-red flash on a real (non-benign) mistake -- see
     // applyTypingResult/errorFlash in js/game.js.
-    ctx.fillStyle = state.errorFlash ? '#c20000' : '#111';
+    // Icy blue while a Time Freeze holds everything in place.
+    ctx.fillStyle = state.errorFlash ? '#c20000' : (state.timeFreezeRemainingMs > 0 ? '#0d2233' : '#111');
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   }
 
@@ -190,11 +191,29 @@ var Render = (function () {
     });
   }
 
-  // Redraws whichever entity (enemy or powerup) is currently locked, on top
-  // of everything else in the non-boss render pass — see renderEnemies.
-  function renderLockedEntityOnTop(ctx, enemies, powerups, buffer, lockedEnemyId, hideText) {
+  // Bonus words draw first (beneath enemies), so a harmless bonus word
+  // crossing a falling enemy never hides the threat. A thin violet frame
+  // marks them as bonus rather than danger.
+  function renderBonusWords(ctx, bonusWords, buffer, lockedEnemyId, hideText) {
+    bonusWords.forEach(function (b) {
+      if (b.id === lockedEnemyId) return;
+      drawBonusFrame(ctx, b);
+      drawEntityBlock(ctx, b, b.word, false, buffer, hideText);
+    });
+  }
+
+  function drawBonusFrame(ctx, b) {
+    ctx.strokeStyle = 'violet';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x - 1.5, b.y - 1.5, b.width + 3, b.height + 3);
+  }
+
+  // Redraws whichever entity (enemy, powerup or bonus word) is currently
+  // locked, on top of everything else in the non-boss render pass — see
+  // renderEnemies.
+  function renderLockedEntityOnTop(ctx, enemies, powerups, bonusWords, buffer, lockedEnemyId, hideText) {
     if (lockedEnemyId == null) return;
-    var locked = enemies.concat(powerups).filter(function (e) { return e.id === lockedEnemyId; })[0];
+    var locked = enemies.concat(powerups, bonusWords).filter(function (e) { return e.id === lockedEnemyId; })[0];
     if (locked) drawEntityBlock(ctx, locked, locked.word, true, buffer, hideText);
   }
 
@@ -220,6 +239,7 @@ var Render = (function () {
     ctx.textAlign = 'right';
     ctx.fillText('Multiplier: x' + state.scoreMultiplier.toFixed(1), CANVAS_WIDTH - HUD_MARGIN, HUD_MARGIN);
     ctx.textAlign = 'left';
+    renderShieldIcons(ctx, state.multiplierShields || 0);
     // Only ever visible if a localStorage write actually failed (see
     // SaveGame.getStorageDiagnostics/save.js) -- invisible in the common
     // case, but surfaces a failure the instant it happens during live play
@@ -231,6 +251,34 @@ var Render = (function () {
         ctx.fillText('SAVE ERR x' + failures, HUD_MARGIN, HUD_MARGIN + 12);
       }
     }
+  }
+
+  // Multiplier Shields: small yellow squares right-aligned under the
+  // multiplier readout they protect -- same cap-then-"+N" pattern as the
+  // lives squares in renderHUD.
+  var MAX_SHIELD_SQUARES = 5;
+  var SHIELD_SQUARE_SIZE = 8;
+  var SHIELD_SQUARE_STEP = 11;
+  function renderShieldIcons(ctx, shields) {
+    if (shields <= 0) return;
+    ctx.save();
+    var shown = Math.min(shields, MAX_SHIELD_SQUARES);
+    var y = HUD_MARGIN + 14;
+    var right = CANVAS_WIDTH - HUD_MARGIN;
+    var extra = shields > MAX_SHIELD_SQUARES ? '+' + (shields - MAX_SHIELD_SQUARES) : '';
+    ctx.font = '10px monospace';
+    ctx.textBaseline = 'top';
+    if (extra) {
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'right';
+      ctx.fillText(extra, right, y - 1);
+      right -= ctx.measureText(extra).width + 3;
+    }
+    ctx.fillStyle = 'yellow';
+    for (var i = 0; i < shown; i++) {
+      ctx.fillRect(right - SHIELD_SQUARE_SIZE - i * SHIELD_SQUARE_STEP, y, SHIELD_SQUARE_SIZE, SHIELD_SQUARE_SIZE);
+    }
+    ctx.restore();
   }
 
   // The HUD is a small overlay drawn directly on top of the play field in
@@ -280,7 +328,7 @@ var Render = (function () {
     ctx.fillText('T9 WIZARD', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 50);
     ctx.font = '12px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Season 1', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
+    ctx.fillText('Season 2', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
     ctx.font = '8px monospace';
     ctx.fillText('v' + GAME_VERSION, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 13);
     ctx.font = '10px monospace';
@@ -546,9 +594,11 @@ var Render = (function () {
     if (effectiveMode(state) === 'boss') {
       renderBoss(ctx, state.boss, buffer, lockedId, isPaused, state.player.y);
     } else {
+      var bonusWords = state.bonusWords || [];
+      renderBonusWords(ctx, bonusWords, buffer, lockedId, isPaused);
       renderEnemies(ctx, state.enemies, buffer, lockedId, isPaused);
       renderPowerups(ctx, state.powerups, buffer, lockedId, isPaused);
-      renderLockedEntityOnTop(ctx, state.enemies, state.powerups, buffer, lockedId, isPaused);
+      renderLockedEntityOnTop(ctx, state.enemies, state.powerups, bonusWords, buffer, lockedId, isPaused);
     }
     renderPlayer(ctx, state.player);
 
