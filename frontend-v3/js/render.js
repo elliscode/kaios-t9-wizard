@@ -319,9 +319,75 @@ var Render = (function () {
     ctx.textBaseline = 'top';
   }
 
+  // Season 2 menu snowfall -- purely cosmetic. Deliberately Math.random,
+  // never Rng: render.js isn't part of the replayed game logic, and drawing
+  // must never consume the seeded sequence a run's replay depends on.
+  var SNOW_PIXELS_PER_FLAKE = 1800; // ~40 flakes on a 240x294 screen
+  var snowflakes = null;
+  var lastSnowTime = null;
+
+  function makeSnowflake(y) {
+    return {
+      x: Math.random() * CANVAS_WIDTH,
+      y: y,
+      speed: 10 + Math.random() * 14, // px/sec
+      phase: Math.random() * Math.PI * 2
+    };
+  }
+
+  function renderSnow(ctx) {
+    var now = Date.now();
+    if (!snowflakes) {
+      snowflakes = [];
+      var count = Math.round((CANVAS_WIDTH * CANVAS_HEIGHT) / SNOW_PIXELS_PER_FLAKE);
+      for (var i = 0; i < count; i++) snowflakes.push(makeSnowflake(Math.random() * CANVAS_HEIGHT));
+    }
+    // Clamped so coming back to the menu (or from a backgrounded tab) doesn't
+    // jump every flake forward at once.
+    var dt = lastSnowTime === null ? 0 : Math.min(0.1, (now - lastSnowTime) / 1000);
+    lastSnowTime = now;
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    snowflakes.forEach(function (f, i) {
+      f.y += f.speed * dt;
+      f.x += Math.sin(now / 1000 + f.phase) * 6 * dt; // gentle side-to-side drift
+      if (f.y > CANVAS_HEIGHT) snowflakes[i] = f = makeSnowflake(-1);
+      ctx.fillRect(Math.round(f.x), Math.round(f.y), 1, 1);
+    });
+  }
+
+  // A tiny Santa hat perched on the last character of `text` (drawn
+  // centered at cx, y with the current font/baseline) -- red cone leaning
+  // right, puffy white brim sitting on the glyph, white pompom on the tip.
+  function renderSantaHatOnLastChar(ctx, text, cx, y) {
+    var full = ctx.measureText(text).width;
+    var charW = ctx.measureText(text.slice(-1)).width;
+    var left = Math.round(cx - full / 2 + ctx.measureText(text.slice(0, -1)).width);
+    var m = ctx.measureText(text.slice(-1));
+    var glyphTop = m.actualBoundingBoxAscent !== undefined ? Math.round(y - m.actualBoundingBoxAscent) : y + 2;
+    var brimY = glyphTop - 3; // brim sits just above the glyph, so the whole character stays readable
+    var w = Math.round(charW);
+    // cone
+    ctx.fillStyle = '#d62828';
+    ctx.beginPath();
+    ctx.moveTo(left, brimY);
+    ctx.lineTo(left + w, brimY);
+    ctx.lineTo(left + w + 2, brimY - 6);
+    ctx.closePath();
+    ctx.fill();
+    // brim: 3px tall, with its ends rounded off for a puffy look
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(left - 1, brimY, w + 2, 3);
+    ctx.fillRect(left - 2, brimY + 1, w + 4, 1);
+    // pompom
+    ctx.beginPath();
+    ctx.arc(left + w + 2, brimY - 6, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function renderMenuOverlay(ctx) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    renderSnow(ctx);
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
@@ -329,6 +395,8 @@ var Render = (function () {
     ctx.font = '12px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('Season 2', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
+    renderSantaHatOnLastChar(ctx, 'Season 2', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 30);
+    ctx.fillStyle = '#fff';
     ctx.font = '8px monospace';
     ctx.fillText('v' + GAME_VERSION, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 13);
     ctx.font = '10px monospace';
