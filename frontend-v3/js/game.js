@@ -91,15 +91,21 @@ var Game = (function () {
   };
   var POWERUP_EFFECT_DURATION_MS = 10000;
   var TIME_FREEZE_DURATION_MS = 10000;
-  // Bonus words: long, harmless words that cross the screen sideways in
-  // their own rows near the top -- optional points, paid for in attention.
+  // Bonus words: picking the powerup first wipes every falling word (scored
+  // like Season 1's screenWipe), then sends long, harmless words sideways
+  // across their own rows near the top. No new falling words spawn until
+  // they've all been typed or crossed -- a short bonus round, rather than
+  // bonus words on top of a full screen of threats.
   var BONUS_WORD_COUNT = 5;
   var BONUS_WORD_MIN_LEN = 10;
   var BONUS_WORD_MAX_LEN = 12;
   var BONUS_WORD_SPEED = 45; // px/sec, tunable -- roughly 6-8s to cross a 240px screen
   var BONUS_WORD_FIRST_ROW_Y = 34;
   var BONUS_WORD_ROW_SPACING = 34; // block + word label + breathing room
-  var BONUS_WORD_MAX_STAGGER = 80; // px of extra off-screen start distance, so rows don't move in lockstep
+  // They always enter from the right (so the first letter is the first thing
+  // on screen) in a staircase: bottom row first, each row above it this many
+  // px further back, so once all are in they read as steps rising rightward.
+  var BONUS_WORD_STAIR_STEP = 48;
   var BONUS_WORD_ROW_GAP = 24; // min px between two bonus words sharing a row (a second pickup's batch)
   var POWERUP_FLASH_DURATION_MS = 2000;
   var POWERUP_RISE_SPEED = 20; // px/sec, tunable
@@ -186,6 +192,9 @@ var Game = (function () {
       scoreMultiplier: 1,
       wordCombo: 0,
       currentWordHadMistake: false,
+      // Set by the first real mistake on the letter currently being typed,
+      // cleared by the next correct letter -- see applyTypingResult.
+      mistakeOnCurrentLetter: false,
       errorFlash: null,
       player: {
         x: CANVAS_WIDTH / 2 - 20,
@@ -262,6 +271,8 @@ var Game = (function () {
     // fresh enemies would keep piling in while the frozen ones sit there,
     // undercutting the breather the powerup is for.
     if (state.timeFreezeRemainingMs > 0) return;
+    // Same for a Bonus Words round: falling words wait until it's over.
+    if (state.bonusWords.length > 0) return;
     state.spawnAccumulator += dt;
     while (state.spawnAccumulator >= SPAWN_INTERVAL_MS && state.spawnedThisWave < ENEMIES_PER_WAVE) {
       spawnEnemy();
@@ -531,18 +542,17 @@ var Game = (function () {
       var word = WordBank.pickWord(BONUS_WORD_MIN_LEN, BONUS_WORD_MAX_LEN, activeWordsSet);
       activeWords[word] = true;
       var width = Math.max(MIN_BLOCK_WIDTH, word.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
-      var leftToRight = i % 2 === 0;
-      var stagger = Rng.next() * BONUS_WORD_MAX_STAGGER;
-      var rowY = BONUS_WORD_FIRST_ROW_Y + i * BONUS_WORD_ROW_SPACING;
-      var x = leftToRight ? -width - stagger : CANVAS_WIDTH + stagger;
+      // i = 0 is the bottom row and enters first; each row up starts one
+      // stair step further off the right edge.
+      var rowY = BONUS_WORD_FIRST_ROW_Y + (BONUS_WORD_COUNT - 1 - i) * BONUS_WORD_ROW_SPACING;
+      var x = CANVAS_WIDTH + i * BONUS_WORD_STAIR_STEP;
       // A second pickup while the first batch is still crossing: every row
-      // always moves the same direction at the same speed, so queueing the
-      // new word behind whatever's already in its row is enough to keep
-      // the two from ever overlapping.
+      // moves the same direction at the same speed, so queueing the new
+      // word behind whatever's already in its row is enough to keep the two
+      // from ever overlapping.
       state.bonusWords.forEach(function (other) {
         if (other.y !== rowY) return;
-        if (leftToRight) x = Math.min(x, other.x - width - BONUS_WORD_ROW_GAP);
-        else x = Math.max(x, other.x + other.width + BONUS_WORD_ROW_GAP);
+        x = Math.max(x, other.x + other.width + BONUS_WORD_ROW_GAP);
       });
       state.bonusWords.push(Enemy.createBonusWord({
         id: state.nextEntityId++,
@@ -553,7 +563,7 @@ var Game = (function () {
         width: width,
         height: BLOCK_HEIGHT,
         color: Colors.colorForWordLength(word.length),
-        vx: leftToRight ? BONUS_WORD_SPEED : -BONUS_WORD_SPEED
+        vx: -BONUS_WORD_SPEED
       }));
     }
   }
@@ -603,7 +613,11 @@ var Game = (function () {
     } else if (type === 'timeFreeze') {
       state.timeFreezeRemainingMs = TIME_FREEZE_DURATION_MS;
     } else if (type === 'bonusWords') {
+      // Bonus words go in BEFORE the wipe: wipeScreen() ends with
+      // checkWaveComplete(), and if it just cleared the wave's last enemies
+      // the wave would otherwise move on before the bonus round even began.
       spawnBonusWords();
+      wipeScreen();
     }
   }
 
@@ -741,7 +755,14 @@ var Game = (function () {
       state.halfLengthRemainingMs = Math.max(0, state.halfLengthRemainingMs - dt);
     }
     if (state.timeFreezeRemainingMs > 0) {
-      state.timeFreezeRemainingMs = Math.max(0, state.timeFreezeRemainingMs - dt);
+      // Nothing left to freeze (every falling and bonus word typed): end it
+      // now rather than leaving the player staring at an empty, frozen
+      // screen with spawning still paused for the rest of the timer.
+      if (state.enemies.length === 0 && state.bonusWords.length === 0) {
+        state.timeFreezeRemainingMs = 0;
+      } else {
+        state.timeFreezeRemainingMs = Math.max(0, state.timeFreezeRemainingMs - dt);
+      }
     }
     if (state.powerupFlash) {
       state.powerupFlash.timerMs -= dt;
@@ -1144,8 +1165,13 @@ var Game = (function () {
         // Multiplier resets the instant a real mistake registers, not
         // deferred until the word finishes -- a mistake mid-word shouldn't
         // still be "spending" a streak it already broke. (Unless a
-        // Multiplier Shield absorbs it -- see breakStreak.)
-        breakStreak();
+        // Multiplier Shield absorbs it -- see breakStreak.) Only the first
+        // mistake on a given letter counts: hammering wrong keys on the same
+        // letter costs one shield (or one reset), not one per keypress.
+        if (!state.mistakeOnCurrentLetter) {
+          state.mistakeOnCurrentLetter = true;
+          breakStreak();
+        }
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
         if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
       }
@@ -1153,6 +1179,7 @@ var Game = (function () {
     }
     if (result.type !== 'locked' && result.type !== 'progress' && result.type !== 'kill') return; // 'miss'
 
+    state.mistakeOnCurrentLetter = false; // a correct letter moves past it
     applyScoreForResult(result);
     // The *completing* keypress gets its own distinct sound instead (KILL
     // or POWERUP, played from handleKill/collectPowerup/
@@ -1231,7 +1258,12 @@ var Game = (function () {
       // whatever's actually locked (or just got locked/killed) is an enemy.
       var scoringTargetId = (result.type === 'locked' || result.type === 'kill') ? result.enemyId : lockedIdBefore;
       var targetIsPowerup = scoringTargetId !== null && state.powerups.some(function (p) { return p.id === scoringTargetId; });
-      if (!targetIsPowerup) {
+      var targetIsBonus = scoringTargetId !== null && state.bonusWords.some(function (b) { return b.id === scoringTargetId; });
+      if (targetIsBonus && result.type === 'wrong') {
+        // A typo on a bonus word is free, same as on a powerup word: no
+        // shield spent, no multiplier reset, no mistake flash. Correct
+        // letters still score normally (below).
+      } else if (!targetIsPowerup) {
         applyTypingResult(result);
       } else if ((result.type === 'locked' || result.type === 'progress') && typeof AudioEngine !== 'undefined') {
         // Powerups skip applyTypingResult entirely (no score to add), but a
@@ -1392,6 +1424,7 @@ var Game = (function () {
     restored.scoreMultiplier = saved.scoreMultiplier || 1;
     restored.wordCombo = saved.wordCombo || 0;
     restored.currentWordHadMistake = !!saved.currentWordHadMistake;
+    restored.mistakeOnCurrentLetter = !!saved.mistakeOnCurrentLetter;
     // Restore the RNG's exact live generator position (not just re-seed) so
     // post-resume randomness continues the same sequence a from-scratch
     // replay of this seed + input log would produce, instead of restarting
@@ -1414,6 +1447,14 @@ var Game = (function () {
   function init(canvas) {
     ctx = canvas.getContext('2d');
     var saved = SaveGame.load();
+    // A run saved by a different build (including any pre-3.2 save, which
+    // never recorded a version) is discarded rather than resumed: it was
+    // played under that build's rules and season, so it couldn't be
+    // replayed or submitted correctly by this one.
+    if (saved && saved.gameVersion !== Render.GAME_VERSION) {
+      SaveGame.clear();
+      saved = null;
+    }
     state = saved ? restoreStateFromSave(saved) : makeInitialState();
     // Pause proactively the instant the page is hidden, rather than relying
     // solely on next-frame dt measurement — closes a race where a "resume"

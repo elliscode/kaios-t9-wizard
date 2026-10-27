@@ -1,0 +1,22 @@
+{
+  "name": "T9 Wizard",
+  "version": "3.1.10",
+  "package_path": "https://github.com/elliscode/kaios-t9-wizard/releases/download/v3.1.10/t9-wizard-3.1.10.zip",
+  "packaged_size": 113187,
+  "size": 113187,
+  "type": "web",
+  "b2g_features": {
+    "subtitle": "Learn T9 the fun way!",
+    "type": "web",
+    "origin": "t9wizard",
+    "permissions": {},
+    "version": "3.1.10",
+    "developer": {
+      "name": "elliscode",
+      "url": "http://www.elliscode.com"
+    },
+    "dependencies": {
+      "ads-sdk": "1.5.8"
+    }
+  }
+}

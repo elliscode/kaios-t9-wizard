@@ -63,9 +63,12 @@ quote ideas:
     *underlying* `scoreMultiplier` as normal, still doubled once it rebuilds?
     or cancel the powerup outright?).
 
-- [x] **New powerup: Bonus Words** — shipped in Season 2. Decided: 5 words
-  per pickup (10–12 letters) in fixed rows near the top, alternating
-  directions; scored like enemies, don't count toward the wave's 20, never
+- [x] **New powerup: Bonus Words** — shipped in Season 2. Decided: pickup
+  first wipes every falling word (scored like screenWipe, counts toward the
+  wave), then 5 words (10–12 letters) enter from the right and move left in fixed
+  rows near the top, as a staircase (bottom row first, each row up 48px
+  behind) so the first letter is always on screen before you type it; falling-word spawning pauses until they're all
+  typed or gone (bonus words on top of a full screen was unplayable); scored like enemies, don't count toward the wave's 20, never
   roll powerups; lowest lock-on priority; a second pickup queues behind the
   first batch in each row.
   - Spawns additional enemies that move horizontally (left-to-right or
@@ -83,7 +86,8 @@ quote ideas:
     already fine: `words-data.js` tops out at exactly length 12, with 191
     words available at that length, so no new word-bank content is needed.
 
-- [x] **New powerup: Time Freeze** — shipped in Season 2. Decided: 10s;
+- [x] **New powerup: Time Freeze** — shipped in Season 2. Decided: 10s, ending
+  early once no falling or bonus words are left on screen;
   freezes enemies, bonus words and spawning (powerups keep rising); cleared
   at wave transitions; bosses unaffected; playfield tints icy blue.
   - Freezes every enemy/boss currently on screen in place for a short

@@ -17,7 +17,8 @@ fi
 files=$(find . \
   -type d \( -name '.git' -o -name 'node_modules' \) -prune -o \
   -type f \( -name '*.js' -o -name '*.html' -o -name '*.css' \
-          -o -name '*.png' -o -name '*.jpg' -o -name '*.webp' \) -print)
+          -o -name '*.png' -o -name '*.jpg' -o -name '*.webp' \
+          -o -name '*.webmanifest' \) -print)
 
 if [ -z "$files" ]; then
   echo "No matching files found." >&2
@@ -28,7 +29,13 @@ while IFS= read -r file; do
   rel_path="${file#./}"
   dest="s3://$BUCKET/$rel_path"
   echo "Uploading $rel_path -> $dest"
-  aws s3 cp "$file" "$dest"
+  # update.webmanifest is the JScalated/OStore update source for the KaiOS
+  # app -- set its type explicitly rather than trusting extension guessing.
+  if [[ "$file" == *.webmanifest ]]; then
+    aws s3 cp "$file" "$dest" --content-type "application/manifest+json"
+  else
+    aws s3 cp "$file" "$dest"
+  fi
 done <<< "$files"
 
 echo "Done. Uploaded to s3://$BUCKET/"
