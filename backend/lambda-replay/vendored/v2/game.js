@@ -11,9 +11,13 @@ var Game = (function () {
     // GET /leaderboard from the menu (see enterLeaderboard).
     CONNECTING: 'connecting', NAME_ENTRY: 'name_entry', SUBMITTING: 'submitting', SUBMITTED: 'submitted',
     LEADERBOARD: 'leaderboard',
-    // A confirmation step between PAUSED and actually quitting -- see
-    // handleQuitKey -- so an accidental '*' press can't abandon a run.
+    // A confirmation step between the pause menu's QUIT RUN and actually
+    // quitting -- see activateMenuOption -- so a stray press can't abandon a run.
     CONFIRM_QUIT: 'confirm_quit',
+    // Local history of this device's recent runs (see js/runhistory.js),
+    // and one run's details, from which a failed submission can be retried.
+    YOUR_RUNS: 'your_runs',
+    RUN_DETAIL: 'run_detail',
     // Gated interstitial ad -- see showGatedAd -- entered from a
     // non-submittable GAMEOVER, CONFIRM_QUIT, or (for a submittable
     // GAMEOVER) from SUBMITTED once the score is safely in -- see
@@ -22,6 +26,36 @@ var Game = (function () {
     // PAUSED/CONFIRM_QUIT unwrap to the frozen sim underneath.
     AD: 'ad'
   };
+
+  // Every screen that's a list of options: up/down moves the << >> selection
+  // (state.menuIndex), the center key or '1' picks it -- see handleNavKey/
+  // handleMenuKey. render.js draws these same labels, in this same order.
+  var MENU_OPTIONS = {};
+  MENU_OPTIONS[STATE.MENU] = ['NEW RUN', 'LEADERBOARD', 'YOUR RUNS'];
+  MENU_OPTIONS[STATE.LEADERBOARD] = ['RETURN TO MAIN MENU', 'OPEN TOP 500'];
+  // YOUR_RUNS and RUN_DETAIL options depend on the runs -- see menuOptions.
+  MENU_OPTIONS[STATE.PAUSED] = ['RESUME', 'QUIT RUN'];
+  MENU_OPTIONS[STATE.CONFIRM_QUIT] = ['KEEP PLAYING', 'YES, QUIT'];
+  // The options on the current screen. YOUR RUNS: one per listed run, then
+  // RETURN. A run's details: RESUBMIT SCORE only when that can work.
+  function menuOptions(state) {
+    if (state.mode === STATE.YOUR_RUNS) {
+      return (state.yourRuns || []).map(function () { return 'RUN'; }).concat(['RETURN TO MAIN MENU']);
+    }
+    if (state.mode === STATE.RUN_DETAIL) {
+      return runStatus(state.selectedRun) === 'resubmittable' ? ['RESUBMIT SCORE', 'BACK'] : ['BACK'];
+    }
+    // End of a run: submitting is optional -- MAIN MENU skips it, leaving
+    // the run resubmittable later from YOUR RUNS.
+    if (state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
+      return isRunSubmittable(state) ? ['SUBMIT SCORE', 'MAIN MENU'] : ['MAIN MENU'];
+    }
+    if (state.mode === STATE.SUBMITTED) return ['CONTINUE'];
+    return MENU_OPTIONS[state.mode] || null;
+  }
+
+  var MAIN_MENU_LEADERBOARD_INDEX = 1;
+  var MAIN_MENU_YOUR_RUNS_INDEX = 2;
 
   var ENEMIES_PER_WAVE = 20;
   var STARTING_LIVES = 3;
@@ -188,6 +222,18 @@ var Game = (function () {
       pendingGameOverAd: false,
       leaderboardEntries: null,
       leaderboardError: null,
+      // UI-only: which option is selected on the current menu screen, and
+      // the YOUR RUNS list being shown. Never saved, never part of a replay.
+      menuIndex: 0,
+      yourRuns: null,
+      // RUN_DETAIL: the history entry being shown, and its row in YOUR RUNS
+      // (to return to). resubmitRunId: set while a YOUR RUNS resubmission is
+      // in flight, so SUBMITTED returns there instead of the main menu.
+      selectedRun: null,
+      selectedRunIndex: 0,
+      resubmitRunId: null,
+      // Set once this run's end has been written to RunHistory.
+      runEndNoted: false,
       score: 0,
       scoreMultiplier: 1,
       wordCombo: 0,
@@ -879,8 +925,48 @@ var Game = (function () {
   // From game-over/win, "Press 1" now returns to the main menu screen rather
   // than immediately starting a new run — makeInitialState() already defaults
   // to STATE.MENU, so this doubles as a full, clean reset of HUD/state too.
-  function returnToMenu() {
+  function returnToMenu(menuIndex) {
     state = makeInitialState();
+    state.menuIndex = menuIndex || 0;
+  }
+
+  // Writes a finished run to the YOUR RUNS history, once. Called only from
+  // live play -- the game loop and the real keypress path -- never from
+  // replayRun, so verifying a run (here or in the replay Lambda) can't log
+  // a phantom one. RunHistory isn't loaded in the Lambda's sandbox at all.
+  function noteRunEnd(outcome) {
+    if (state.runEndNoted || state.bossRush || typeof RunHistory === 'undefined') return;
+    state.runEndNoted = true;
+    // Keep what /submit needs for any run that could go on the leaderboard,
+    // so a submission that fails now can be retried from YOUR RUNS.
+    var submittable = outcome !== 'quit' && isRunSubmittable(state);
+    RunHistory.record({
+      runId: state.runId,
+      startedAt: state.runStartedAt,
+      outcome: outcome,
+      score: state.score,
+      world: worldOfWave(state.wave),
+      wave: waveInWorld(state.wave)
+    }, submittable ? buildSubmitPayload() : null);
+  }
+
+  // Why a YOUR RUNS entry can or can't be (re)submitted -- drives its details
+  // screen and whether RESUBMIT SCORE is offered.
+  function runStatus(run) {
+    if (!run) return 'none';
+    if (run.submitted) return 'submitted';
+    if (run.outcome === 'quit') return 'quit';
+    if (!run.runId) return 'offline';
+    if (run.score < MIN_SUBMITTABLE_SCORE) return 'low_score';
+    if (run.gone) return 'gone';
+    if (run.startedAt && Date.now() - run.startedAt > RUN_EXPIRATION_MS) return 'expired';
+    if (!run.hasPayload) return 'no_data';
+    return 'resubmittable';
+  }
+
+  function noteRunEndIfNeeded() {
+    if (state.mode === STATE.GAMEOVER) noteRunEnd('gameover');
+    else if (state.mode === STATE.WIN) noteRunEnd('win');
   }
 
   // The exact three modes that advance time — the only ones that can be
@@ -895,6 +981,7 @@ var Game = (function () {
   function pauseGame() {
     state.pausedFromMode = state.mode;
     state.mode = STATE.PAUSED;
+    state.menuIndex = 0; // RESUME
     // Pausing (manual, auto-on-stall, or the tab being hidden) is exactly
     // the moment the app might get backgrounded/closed next, so it doubles
     // as a save checkpoint.
@@ -953,68 +1040,103 @@ var Game = (function () {
     });
   }
 
-  function handleMenuKey() {
+  // Runs the currently selected option on a menu screen (see MENU_OPTIONS).
+  function activateMenuOption() {
+    var option = menuOptions(state)[state.menuIndex];
     if (state.mode === STATE.MENU) {
-      resetGame();
-    } else if (state.mode === STATE.WIN) {
-      // A win never shows an ad -- only losing/quitting does (see
-      // showGatedAd).
-      if (isRunSubmittable(state)) {
-        enterNameEntry();
+      if (option === 'NEW RUN') resetGame();
+      else if (option === 'LEADERBOARD') enterLeaderboard();
+      else if (option === 'YOUR RUNS') enterYourRuns();
+    } else if (state.mode === STATE.LEADERBOARD) {
+      if (option === 'RETURN TO MAIN MENU') returnToMenu(MAIN_MENU_LEADERBOARD_INDEX);
+      else if (option === 'OPEN TOP 500') openFullLeaderboard();
+    } else if (state.mode === STATE.YOUR_RUNS) {
+      if (option === 'RUN') enterRunDetail(state.menuIndex);
+      else returnToMenu(MAIN_MENU_YOUR_RUNS_INDEX);
+    } else if (state.mode === STATE.RUN_DETAIL) {
+      if (option === 'RESUBMIT SCORE') {
+        state.resubmitRunId = state.selectedRun.runId;
+        enterNameEntry(handleResubmitName);
       } else {
-        returnToMenu();
+        enterYourRuns(state.selectedRunIndex);
+      }
+    } else if (state.mode === STATE.PAUSED) {
+      if (option === 'RESUME') resumeGame();
+      else if (option === 'QUIT RUN') {
+        // A confirmation step, defaulting to the safe choice, so an
+        // accidental press can't abandon a run.
+        state.mode = STATE.CONFIRM_QUIT;
+        state.menuIndex = 0;
       }
     } else if (state.mode === STATE.GAMEOVER) {
-      // A game over is a legitimate, submittable result too (see
-      // submit_route) -- not just a real win. A submittable run goes
-      // straight to name entry, no ad gate in front of it -- the ad owed
-      // for losing is deferred until after the score is safely submitted
-      // (see pendingGameOverAd/the SUBMITTED branch below), so an ad
-      // interaction that hijacks/closes the app can cost at most the ad
-      // impression, never the player's leaderboard entry (this used to gate
-      // entry into name entry itself, which could and did lose real
-      // submissions this way). A non-submittable run has no leaderboard
-      // step to protect, so it's unchanged: ad immediately, then the menu.
-      if (isRunSubmittable(state)) {
+      // Submitting goes straight to name entry, no ad in front of it -- the
+      // ad owed for losing is deferred until after the score is safely
+      // submitted (see pendingGameOverAd and SUBMITTED below), so an ad
+      // that hijacks/closes the app can cost at most the ad impression,
+      // never the player's leaderboard entry (gating name entry itself
+      // behind the ad could and did lose real submissions). Skipping the
+      // submission has no leaderboard step to protect: ad, then the menu.
+      if (option === 'SUBMIT SCORE') {
         state.pendingGameOverAd = true;
         enterNameEntry();
       } else {
         showGatedAd(returnToMenu);
       }
+    } else if (state.mode === STATE.WIN) {
+      // A win never shows an ad -- only losing/quitting does (see showGatedAd).
+      if (option === 'SUBMIT SCORE') enterNameEntry();
+      else returnToMenu();
     } else if (state.mode === STATE.SUBMITTED) {
-      if (state.pendingGameOverAd) {
+      if (state.resubmitRunId) {
+        var runId = state.resubmitRunId;
+        state.resubmitRunId = null;
+        enterYourRuns(state.selectedRunIndex, runId);
+      } else if (state.pendingGameOverAd) {
         state.pendingGameOverAd = false;
         showGatedAd(returnToMenu);
       } else {
         returnToMenu();
       }
-    } else if (state.mode === STATE.LEADERBOARD) {
-      returnToMenu();
-    } else if (state.mode === STATE.PAUSED) {
-      resumeGame();
     } else if (state.mode === STATE.CONFIRM_QUIT) {
-      // '1' confirms the quit prompted by handleQuitKey.
-      showGatedAd(function () {
-        SaveGame.clear();
-        returnToMenu();
-      });
-    } else if (isActiveSimulationMode()) {
-      pauseGame();
+      if (option === 'KEEP PLAYING') {
+        state.mode = STATE.PAUSED;
+        resumeGame();
+      } else if (option === 'YES, QUIT') {
+        noteRunEnd('quit');
+        showGatedAd(function () {
+          SaveGame.clear();
+          returnToMenu();
+        });
+      }
     }
   }
 
-  // Only available while paused (not a general "abandon run" shortcut mid-
-  // gameplay) -- quitting is a deliberate choice to abandon the run, gated
-  // behind a confirmation (see handleMenuKey's CONFIRM_QUIT branch for the
-  // actual quit, and STATE.CONFIRM_QUIT's comment) so an accidental '*'
-  // press can't lose one. '*' also cancels back out of that confirmation --
-  // this same handler covers both, since main.js already routes '*' here
-  // unconditionally regardless of which of the two modes is current.
-  function handleQuitKey() {
-    if (state.mode === STATE.PAUSED) {
-      state.mode = STATE.CONFIRM_QUIT;
-    } else if (state.mode === STATE.CONFIRM_QUIT) {
-      state.mode = STATE.PAUSED;
+  // Up/down on any menu screen; wraps around at either end.
+  function handleNavKey(delta) {
+    var options = menuOptions(state);
+    if (!options) return;
+    state.menuIndex = (state.menuIndex + delta + options.length) % options.length;
+  }
+
+  // The center (Enter) key: picks the selected option, like '1'. Deliberately
+  // does nothing during play -- pausing is '1', '*' or '#'.
+  function handleSelectKey() {
+    if (isActiveSimulationMode()) return;
+    handleMenuKey();
+  }
+
+  // '*' or '#' during play opens the pause menu; ignored everywhere else.
+  function handlePauseKey() {
+    if (isActiveSimulationMode()) pauseGame();
+  }
+
+  // '1': picks the selected option on any screen with options (menus, the
+  // pause menu, the end-of-run screens); during play it pauses.
+  function handleMenuKey() {
+    if (menuOptions(state)) {
+      activateMenuOption();
+    } else if (isActiveSimulationMode()) {
+      pauseGame();
     }
   }
 
@@ -1024,26 +1146,40 @@ var Game = (function () {
     }
   }
 
-  // '*' from the menu opens the in-game (top-10) leaderboard; '*' again
-  // while already there opens the full (top-500) leaderboard in an actual
-  // browser tab -- same multi-purpose-single-key pattern used elsewhere
-  // (see handleQuitKey), gated on mutually exclusive modes.
-  function handleLeaderboardKey() {
-    if (state.mode === STATE.MENU) {
-      enterLeaderboard();
-    } else if (state.mode === STATE.LEADERBOARD) {
-      try {
-        if (typeof window !== 'undefined' && window.open) {
-          window.open('https://t9-wizard.elliscode.com/leaderboard-season2.html', '_blank');
-        }
-      } catch (e) {
-        // Never let this break the game -- same philosophy as AudioEngine/SaveGame.
+  // The full (top-500) leaderboard, in an actual browser tab.
+  function openFullLeaderboard() {
+    try {
+      if (typeof window !== 'undefined' && window.open) {
+        window.open('https://t9-wizard.elliscode.com/leaderboard-season2.html', '_blank');
+      }
+    } catch (e) {
+      // Never let this break the game -- same philosophy as AudioEngine/SaveGame.
+    }
+  }
+
+  // selectIndex: which row to highlight (e.g. the run just viewed);
+  // reopenRunId: after a resubmission, show that run's (updated) details.
+  function enterYourRuns(selectIndex, reopenRunId) {
+    state.mode = STATE.YOUR_RUNS;
+    state.yourRuns = typeof RunHistory !== 'undefined' ? RunHistory.list() : [];
+    state.menuIndex = Math.min(selectIndex || 0, state.yourRuns.length);
+    if (reopenRunId) {
+      for (var i = 0; i < state.yourRuns.length; i++) {
+        if (state.yourRuns[i].runId === reopenRunId) { enterRunDetail(i); return; }
       }
     }
   }
 
+  function enterRunDetail(index) {
+    state.mode = STATE.RUN_DETAIL;
+    state.selectedRun = state.yourRuns[index];
+    state.selectedRunIndex = index;
+    state.menuIndex = 0;
+  }
+
   function enterLeaderboard() {
     state.mode = STATE.LEADERBOARD;
+    state.menuIndex = 0;
     state.leaderboardEntries = null;
     state.leaderboardError = null;
     if (typeof Api === 'undefined') return;
@@ -1058,9 +1194,9 @@ var Game = (function () {
     });
   }
 
-  function enterNameEntry() {
+  function enterNameEntry(onName) {
     state.mode = STATE.NAME_ENTRY;
-    if (typeof NameEntry !== 'undefined') NameEntry.show(handleNameSubmitted);
+    if (typeof NameEntry !== 'undefined') NameEntry.show(onName || handleNameSubmitted);
   }
 
   // Fires once the player confirms a name in the real <input> (see
@@ -1078,21 +1214,13 @@ var Game = (function () {
     return chunks.reduce(function (acc, chunk) { return acc.concat(chunk); }, []);
   }
 
-  function handleNameSubmitted(name) {
-    state.mode = STATE.SUBMITTING;
-    // Hide (and thus deactivate) the real <input> immediately, not once the
-    // request resolves -- otherwise it stays focused/active for the whole
-    // round trip, and a second Enter press in that window re-fires this
-    // same handler, sending a duplicate /submit before the first response
-    // even comes back. This runs synchronously before Api.submit() is even
-    // called, so it closes the race even against a duplicate hardware
-    // keydown event for the same physical press.
-    if (typeof NameEntry !== 'undefined') NameEntry.hide();
-    if (typeof Api === 'undefined') return;
-    var thisState = state;
-    Api.submit({
+  // Everything /submit needs except the display name. Built when a run ends
+  // (and stored for a possible resubmission -- see noteRunEnd) and again at
+  // the live submission; nothing in it changes between the two, since the
+  // simulation (and the input log) stops the moment the run ends.
+  function buildSubmitPayload() {
+    return {
       run_id: state.runId,
-      display_name: name,
       tick_count: state.tickCount,
       canvas_width: Layout.CANVAS_WIDTH,
       canvas_height: Layout.CANVAS_HEIGHT,
@@ -1119,16 +1247,59 @@ var Game = (function () {
       // field and fail the whole submission.
       client_storage_write_failures: SaveGame.getStorageDiagnostics().failureCount,
       client_storage_last_error: SaveGame.getStorageDiagnostics().lastError || undefined
-    }).then(function (result) {
+    };
+  }
+
+  function handleNameSubmitted(name) {
+    var payload = buildSubmitPayload();
+    payload.display_name = name;
+    sendSubmission(payload);
+  }
+
+  // A YOUR RUNS resubmission: the payload saved when the run ended.
+  function handleResubmitName(name) {
+    var payload = typeof RunHistory !== 'undefined' ? RunHistory.loadPayload(state.resubmitRunId) : null;
+    if (!payload) {
+      state.mode = STATE.SUBMITTED;
+      state.menuIndex = 0;
+      state.submitResult = null;
+      state.submitError = "This run's data is missing";
+      if (typeof NameEntry !== 'undefined') NameEntry.hide();
+      return;
+    }
+    payload.display_name = name;
+    sendSubmission(payload);
+  }
+
+  function sendSubmission(payload) {
+    state.mode = STATE.SUBMITTING;
+    // Hide (and thus deactivate) the real <input> immediately, not once the
+    // request resolves -- otherwise it stays focused/active for the whole
+    // round trip, and a second Enter press in that window re-fires this
+    // same handler, sending a duplicate /submit before the first response
+    // even comes back. This runs synchronously before Api.submit() is even
+    // called, so it closes the race even against a duplicate hardware
+    // keydown event for the same physical press.
+    if (typeof NameEntry !== 'undefined') NameEntry.hide();
+    if (typeof Api === 'undefined') return;
+    var thisState = state;
+    var runId = payload.run_id;
+    Api.submit(payload).then(function (result) {
       if (state !== thisState) return;
       if (result.ok && result.body && result.body.score != null) {
         state.submitResult = { score: result.body.score };
         state.submitError = null;
+        if (typeof RunHistory !== 'undefined') RunHistory.markSubmitted(runId);
       } else {
         state.submitResult = null;
         state.submitError = (result.body && result.body.message) || 'Score submission failed';
+        // The server deletes a run once it's submitted, and after 7 days --
+        // a 404 means no retry can ever succeed (most likely an earlier
+        // attempt did go through and only its response was lost).
+        if (result.status === 404 && typeof RunHistory !== 'undefined') RunHistory.markGone(runId);
       }
       state.mode = STATE.SUBMITTED;
+      state.menuIndex = 0;
     });
   }
 
@@ -1319,6 +1490,7 @@ var Game = (function () {
           state.simAccumulator -= TICK_MS;
           state.tickCount += 1;
         }
+        noteRunEndIfNeeded();
       }
     }
     Render.renderFrame(ctx, state);
@@ -1480,12 +1652,21 @@ var Game = (function () {
     BOSS_SEGMENT_WIDTH: BOSS_SEGMENT_WIDTH,
     BOSS_SEGMENT_GAP: BOSS_SEGMENT_GAP,
     BOSS_SEGMENT_PADDING: BOSS_SEGMENT_PADDING,
+    menuOptions: menuOptions,
+    runStatus: runStatus,
     init: init,
-    handleDigitKey: handleDigitKey,
+    // The real-keypress path (main.js). A keypress can itself end a run --
+    // the last letter of a world-5 boss sentence -- so it checks for a run
+    // end here, outside the internal handleDigitKey that replayRun shares.
+    handleDigitKey: function (digit) {
+      handleDigitKey(digit);
+      noteRunEndIfNeeded();
+    },
     handleMenuKey: handleMenuKey,
+    handleNavKey: handleNavKey,
+    handleSelectKey: handleSelectKey,
+    handlePauseKey: handlePauseKey,
     handleBossRushKey: handleBossRushKey,
-    handleQuitKey: handleQuitKey,
-    handleLeaderboardKey: handleLeaderboardKey,
     getWordLengthRangeForWave: getWordLengthRangeForWave,
     worldOfWave: worldOfWave,
     waveInWorld: waveInWorld,

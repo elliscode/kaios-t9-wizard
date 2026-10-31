@@ -5,7 +5,7 @@ var Render = (function () {
   // Hardcoded, not derived from index.html's ?v= cache-busting query params --
   // bump this by hand alongside those on each release (a project-wide
   // find/replace already covers every ?v=X.Y.Z occurrence at once).
-  var GAME_VERSION = '3.2.3';
+  var GAME_VERSION = '3.2.6';
 
   function renderPlayField(ctx, state) {
     // Brief dark-red flash on a real (non-benign) mistake -- see
@@ -384,7 +384,39 @@ var Render = (function () {
     ctx.fill();
   }
 
-  function renderMenuOverlay(ctx) {
+  // A vertical list of centered menu options (Game.menuOptions(state)); the
+  // selected one is drawn inverted -- black text on a white bar.
+  var MENU_OPTION_SPACING = 16;
+  var MENU_OPTION_PAD_X = 6;
+  function renderMenuOptions(ctx, state, firstY, options) {
+    options = options || Game.menuOptions(state) || [];
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    options.forEach(function (label, i) {
+      var y = firstY + i * MENU_OPTION_SPACING;
+      if (i === state.menuIndex) {
+        var w = ctx.measureText(label).width + MENU_OPTION_PAD_X * 2;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(Math.round(CANVAS_WIDTH / 2 - w / 2), y - 2, Math.round(w), 14);
+        ctx.fillStyle = '#000';
+      } else {
+        ctx.fillStyle = '#fff';
+      }
+      ctx.fillText(label, CANVAS_WIDTH / 2, y);
+    });
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+  }
+
+  // Options anchored to the bottom of the screen (leaderboard, pause, etc.),
+  // the last one sitting where the old "Press 1 ..." line used to.
+  function renderBottomMenuOptions(ctx, state) {
+    var count = (Game.menuOptions(state) || []).length;
+    renderMenuOptions(ctx, state, CANVAS_HEIGHT - 36 - (count - 1) * MENU_OPTION_SPACING);
+  }
+
+  function renderMenuOverlay(ctx, state) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     renderSnow(ctx);
@@ -399,15 +431,10 @@ var Render = (function () {
     ctx.fillStyle = '#fff';
     ctx.font = '8px monospace';
     ctx.fillText('v' + GAME_VERSION, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 13);
-    ctx.font = '10px monospace';
-    ctx.fillText('Press 1 to start', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
     // Boss rush was a boss-balance testing tool -- balance is settled now,
-    // so it's off the menu. Left commented (not deleted) since main.js's
-    // '*' case for it is disabled the same way -- trivial to bring both
-    // back if it's needed again later.
-    // ctx.fillText('Press * for boss rush', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
-    ctx.fillText('Press * for leaderboard', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
-    ctx.textAlign = 'left';
+    // so it's off the menu (main.js's old '*' case for it is commented out
+    // the same way).
+    renderMenuOptions(ctx, state, CANVAS_HEIGHT / 2 + 12);
   }
 
   function renderGameOverOverlay(ctx, state) {
@@ -422,19 +449,20 @@ var Render = (function () {
     var wiw = Game.waveInWorld(state.wave);
     ctx.fillText('Reached World ' + world + ' Wave ' + wiw, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
-    // A submittable run goes straight to name entry -- the ad it still owes
-    // is deferred until after the score is safely submitted (see
-    // pendingGameOverAd/handleMenuKey), so this screen no longer mentions
-    // one. A non-submittable run has no leaderboard step to protect, so it
-    // keeps showing the ad immediately, same as before.
-    var submittable = Game.isRunSubmittable(state);
-    if (submittable) {
-      ctx.fillText('Press 1 to submit your score', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
-    } else {
-      ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
-      ctx.fillText('return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 46);
-    }
-    ctx.textAlign = 'left';
+    // Losing always owes an ad -- right away on MAIN MENU, or after the
+    // score is safely in on SUBMIT SCORE (see pendingGameOverAd).
+    renderAdNote(ctx, state);
+    renderBottomMenuOptions(ctx, state);
+  }
+
+  // A grey heads-up just above the bottom options.
+  function renderAdNote(ctx, state) {
+    var count = (Game.menuOptions(state) || []).length;
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#999';
+    ctx.fillText('An ad plays before the menu.', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36 - (count - 1) * MENU_OPTION_SPACING - 24);
+    ctx.fillStyle = '#fff';
   }
 
   function renderWinOverlay(ctx, state) {
@@ -450,9 +478,7 @@ var Render = (function () {
     ctx.font = '10px monospace';
     ctx.fillText(state.bossRush ? 'All 5 bosses defeated' : 'All 5 worlds cleared', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     ctx.fillText('Score: ' + Math.floor(state.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 14);
-    var submittable = Game.isRunSubmittable(state);
-    ctx.fillText(submittable ? 'Press 1 to submit score' : 'Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
-    ctx.textAlign = 'left';
+    renderBottomMenuOptions(ctx, state);
   }
 
   function renderConnectingOverlay(ctx) {
@@ -527,16 +553,11 @@ var Render = (function () {
       ctx.font = '10px monospace';
       ctx.fillText('Score: ' + Math.floor(state.submitResult.score), CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     }
-    // A gameover-originated submission still owes its ad here (see
-    // pendingGameOverAd/handleMenuKey) -- a win-originated one never set
-    // the flag, so it keeps the plain "return to main menu" prompt.
-    if (state.pendingGameOverAd) {
-      ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
-      ctx.fillText('return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 46);
-    } else {
-      ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 32);
-    }
-    ctx.textAlign = 'left';
+    // CONTINUE goes back to YOUR RUNS after a resubmission; otherwise to the
+    // main menu -- after the ad a game-over submission still owes (see
+    // pendingGameOverAd), never after a win.
+    if (state.pendingGameOverAd && !state.resubmitRunId) renderAdNote(ctx, state);
+    renderBottomMenuOptions(ctx, state);
   }
 
   var LEADERBOARD_ROWS = 10;
@@ -570,10 +591,113 @@ var Render = (function () {
         ctx.textAlign = 'left';
       });
     }
+    renderBottomMenuOptions(ctx, state);
+  }
+
+  var YOUR_RUNS_ROWS = 10;
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  // A small green check mark, ~7x6px, with its top-left at (x, y).
+  function drawCheck(ctx, x, y) {
+    ctx.strokeStyle = '#2ecc71';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y + 3);
+    ctx.lineTo(x + 2.5, y + 6);
+    ctx.lineTo(x + 7, y);
+    ctx.stroke();
+  }
+
+  function reachedLabel(run) {
+    var reached = run.outcome === 'win' ? 'WIN' : 'W' + run.world + '-' + run.wave;
+    return run.outcome === 'quit' ? reached + ' QUIT' : reached;
+  }
+
+  // Each run is a selectable row (opens its details), then RETURN at the
+  // bottom -- the highlighted one drawn inverted, like every other menu.
+  function renderYourRunsOverlay(ctx, state) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'top';
+    ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Press * for top-500 leaderboard', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 52);
-    ctx.fillText('Press 1 to return to main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36);
-    ctx.textAlign = 'left';
+    ctx.fillText('YOUR RUNS', CANVAS_WIDTH / 2, 24);
+    ctx.font = '10px monospace';
+    var runs = (state.yourRuns || []).slice(0, YOUR_RUNS_ROWS);
+    if (runs.length === 0) {
+      ctx.fillText('No runs yet', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+    } else {
+      var rowHeight = 16;
+      var startY = 48;
+      runs.forEach(function (run, i) {
+        var y = startY + i * rowHeight;
+        var selected = i === state.menuIndex;
+        if (selected) {
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(4, y - 2, CANVAS_WIDTH - 8, 14);
+        }
+        var d = new Date(run.at);
+        ctx.fillStyle = selected ? '#000' : (run.outcome === 'quit' ? '#999' : '#fff');
+        ctx.textAlign = 'left';
+        ctx.fillText(pad2(d.getMonth() + 1) + '/' + pad2(d.getDate()), 10, y);
+        ctx.fillText(reachedLabel(run), 52, y);
+        ctx.textAlign = 'right';
+        ctx.fillText(String(run.score), CANVAS_WIDTH - 24, y);
+        if (run.submitted) drawCheck(ctx, CANVAS_WIDTH - 18, y + 1);
+      });
+      ctx.fillStyle = '#999';
+      ctx.textAlign = 'left';
+      drawCheck(ctx, 62, CANVAS_HEIGHT - 70);
+      ctx.fillText('= submitted', 74, CANVAS_HEIGHT - 70);
+    }
+    ctx.fillStyle = '#fff';
+    // RETURN is the option after the last run.
+    renderMenuOptions(ctx, { menuIndex: state.menuIndex - runs.length }, CANVAS_HEIGHT - 36, ['RETURN TO MAIN MENU']);
+  }
+
+  var RUN_STATUS_TEXT = {
+    submitted: ['Submitted to the leaderboard.'],
+    resubmittable: ['Not submitted yet.', 'You can resubmit it now.'],
+    low_score: ['Under 1000 points, so it', "can't go on the leaderboard."],
+    offline: ['Played offline, so it', "can't be submitted."],
+    quit: ["Quit runs can't be submitted."],
+    expired: ['Too old to submit', '(7-day limit).'],
+    gone: ['The server no longer has this', 'run. It may already have', 'been submitted.'],
+    no_data: ["This run's data wasn't saved,", "so it can't be resubmitted."]
+  };
+
+  function renderRunDetailOverlay(ctx, state) {
+    var run = state.selectedRun;
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'top';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('RUN DETAILS', CANVAS_WIDTH / 2, 24);
+    ctx.font = '10px monospace';
+    var d = new Date(run.at);
+    ctx.fillText(pad2(d.getMonth() + 1) + '/' + pad2(d.getDate()) + '/' + d.getFullYear() + '  ' +
+      pad2(d.getHours()) + ':' + pad2(d.getMinutes()), CANVAS_WIDTH / 2, 50);
+    var reached = run.outcome === 'win' ? 'Cleared all 5 worlds!'
+      : (run.outcome === 'quit' ? 'Quit in' : 'Reached') + ' World ' + run.world + ', Wave ' + run.wave;
+    ctx.fillText(reached, CANVAS_WIDTH / 2, 66);
+    ctx.fillText('Score: ' + run.score, CANVAS_WIDTH / 2, 82);
+
+    var status = Game.runStatus(run);
+    var lines = RUN_STATUS_TEXT[status] || [];
+    ctx.fillStyle = status === 'submitted' ? '#2ecc71' : (status === 'resubmittable' ? '#fff' : '#999');
+    lines.forEach(function (line, i) {
+      ctx.fillText(line, CANVAS_WIDTH / 2, 110 + i * 14);
+    });
+    if (status === 'submitted') {
+      var w = ctx.measureText(lines[0]).width;
+      drawCheck(ctx, CANVAS_WIDTH / 2 - w / 2 - 11, 111);
+    }
+    ctx.fillStyle = '#fff';
+    renderBottomMenuOptions(ctx, state);
   }
 
   function renderPauseOverlay(ctx, state) {
@@ -604,23 +728,22 @@ var Render = (function () {
       ctx.fillText("This run isn't eligible for", CANVAS_WIDTH / 2, 50);
       ctx.fillText('the leaderboard', CANVAS_WIDTH / 2, 64);
     }
-    ctx.fillText('Press 1 to resume', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 52);
-    ctx.fillText('Press * to quit game', CANVAS_WIDTH / 2, CANVAS_HEIGHT - 36);
-    ctx.textAlign = 'left';
+    renderBottomMenuOptions(ctx, state);
   }
 
-  function renderConfirmQuitOverlay(ctx) {
+  function renderConfirmQuitOverlay(ctx, state) {
     ctx.fillStyle = 'rgba(0,0,0,0.8)';
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     ctx.fillStyle = '#fff';
     ctx.font = '14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('ARE YOU SURE?', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
+    ctx.fillText('QUIT RUN?', CANVAS_WIDTH / 2, 30);
     ctx.font = '10px monospace';
-    ctx.fillText('Press 1 to see an ad, then', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 4);
-    ctx.fillText('return to the main menu', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 18);
-    ctx.fillText('Press * to cancel', CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 36);
-    ctx.textAlign = 'left';
+    ctx.fillText('Your progress will be lost.', CANVAS_WIDTH / 2, 54);
+    ctx.fillStyle = '#999';
+    ctx.fillText('An ad plays before the menu.', CANVAS_WIDTH / 2, 70);
+    ctx.fillStyle = '#fff';
+    renderBottomMenuOptions(ctx, state);
   }
 
   var POWERUP_FLASH_BLINK_INTERVAL_MS = 150;
@@ -671,17 +794,19 @@ var Render = (function () {
     renderPlayer(ctx, state.player);
 
     if (state.mode === 'gameover') renderGameOverOverlay(ctx, state);
-    if (state.mode === 'menu') renderMenuOverlay(ctx);
+    if (state.mode === 'menu') renderMenuOverlay(ctx, state);
     if (effectiveMode(state) === 'transition') renderTransitionOverlay(ctx, state);
     if (state.mode === 'win') renderWinOverlay(ctx, state);
     if (state.mode === 'paused') renderPauseOverlay(ctx, state);
-    if (state.mode === 'confirm_quit') renderConfirmQuitOverlay(ctx);
+    if (state.mode === 'confirm_quit') renderConfirmQuitOverlay(ctx, state);
     if (state.mode === 'connecting') renderConnectingOverlay(ctx);
     if (state.mode === 'ad') renderAdOverlay(ctx);
     if (state.mode === 'name_entry') renderNameEntryOverlay(ctx);
     if (state.mode === 'submitting') renderSubmittingOverlay(ctx);
     if (state.mode === 'submitted') renderSubmittedOverlay(ctx, state);
     if (state.mode === 'leaderboard') renderLeaderboardOverlay(ctx, state);
+    if (state.mode === 'your_runs') renderYourRunsOverlay(ctx, state);
+    if (state.mode === 'run_detail') renderRunDetailOverlay(ctx, state);
     if (state.powerupFlash) renderPowerupFlash(ctx, state);
 
     // Drawn last so it's always on top — never obscured by gameplay behind

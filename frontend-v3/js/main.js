@@ -16,23 +16,24 @@
       if (typeof NameEntry !== 'undefined' && NameEntry.isActive()) return;
 
       if (e.key === '1') {
+        // Pauses during play; picks the selected option on a menu screen.
         e.preventDefault();
         Game.handleMenuKey();
       } else if (e.key >= '2' && e.key <= '9') {
         e.preventDefault();
         Game.handleDigitKey(e.key);
-      } else if (e.key === '*') {
+      } else if (e.key === '*' || e.key === '#') {
         e.preventDefault();
         // Boss rush's old key -- commented out, not deleted, alongside its
         // menu text in render.js (see renderMenuOverlay).
         // Game.handleBossRushKey();
-        // '*' now covers both leaderboard (from the menu) and quit (from
-        // paused) -- safe to call both unconditionally since each already
-        // guards on its own required mode, and those modes are mutually
-        // exclusive, the same way '1' already means different things
-        // depending on state.
-        Game.handleLeaderboardKey();
-        Game.handleQuitKey();
+        Game.handlePauseKey();
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        Game.handleNavKey(e.key === 'ArrowUp' ? -1 : 1);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        Game.handleSelectKey();
       }
     });
   });

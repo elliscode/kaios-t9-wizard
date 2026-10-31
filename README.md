@@ -71,7 +71,7 @@ No build step, no dependencies — just open `frontend-v3/index.html` directly i
 
 For on-device KaiOS testing, sideload the directory as a packaged app using `manifest.webmanifest` (see `frontend-v3/kaios-release.sh` for the exact zip contents the store submission itself uses).
 
-Controls: digit keys **2-9** to type, **1** to start/pause/resume (and, from a game-over or win screen with a submittable run, to enter your name and submit your score — or just to return to the main menu if it isn't submittable; pressing it again from the main menu starts a new run), **\*** from the main menu for boss rush (see above), **0** from the main menu to view the leaderboard.
+Controls: digit keys **2-9** to type. Menus (main menu, leaderboard, YOUR RUNS, pause, quit confirmation) are lists: **up/down** moves the highlighted option and the **center key** or **1** selects it. During play, **1**, **\*** or **#** opens the pause menu (RESUME / QUIT RUN). The game-over and win screens offer SUBMIT SCORE / MAIN MENU for a submittable run (MAIN MENU skips submitting; the run stays resubmittable from YOUR RUNS), or just MAIN MENU otherwise; the score-submitted screen offers CONTINUE. A game over shows an ad before the menu either way (after the score is in, if submitted); a win never does. YOUR RUNS lists this phone's last 10 runs, newest first (`frontend-v3/js/runhistory.js`, local only). Selecting one shows its details and whether it reached the leaderboard; a run whose submission failed (no signal, a timeout) can be resubmitted from there with RESUBMIT SCORE, which resends the exact /submit payload saved when the run ended (its input log packed with `js/bitlog.js`). A run that was accepted (2xx), or that the server answers with 404 (already submitted, or past the 7-day limit), never offers resubmit again.
 
 ## Layout & HUD
 
@@ -189,14 +189,16 @@ No known issues at this time.
 
 ## Simple Test Report
 
-1. Launch the app. Confirm the main menu appears with the title "T9 WIZARD" and the options "Press 1 to start" / "Press * for leaderboard".
-2. Press **1**. Confirm a brief full-screen "WORLD 1 / WAVE 1" announcement appears, followed by gameplay starting — colored blocks, each carrying a word, begin falling from the top of the screen.
+1. Launch the app. Confirm the main menu appears with the title "T9 WIZARD" and the options NEW RUN, LEADERBOARD and YOUR RUNS, with NEW RUN highlighted. Press **down** and **up** and confirm the highlight moves between them.
+2. With NEW RUN highlighted, press the **center key** (or **1**). Confirm a brief full-screen "WORLD 1 / WAVE 1" announcement appears, followed by gameplay starting — colored blocks, each carrying a word, begin falling from the top of the screen.
 3. Using the numeric keypad, type the T9 digit sequence for a falling word's letters (e.g. 2=ABC, 3=DEF, 4=GHI, 5=JKL, 6=MNO, 7=PQRS, 8=TUV, 9=WXYZ). Confirm the block is destroyed once the full word is typed, and the score in the top-left corner increases.
 4. Allow one word to fall all the way to the bottom without typing it. Confirm one life is lost (shown as a red square in the bottom-left HUD disappearing) and the screen briefly flashes red.
-5. Press **1** during active gameplay. Confirm the game pauses (a "PAUSED" overlay appears, falling blocks freeze). Press **1** again and confirm gameplay resumes from where it left off.
+5. Press **1** (or **\*** or **#**) during active gameplay. Confirm the game pauses (a "PAUSED" menu appears with RESUME highlighted, and falling words are hidden). Press the **center key** and confirm gameplay resumes from where it left off.
 6. Continue playing (allowing words to fall through, if desired, to end the run quickly) until all lives are lost. Confirm a "GAME OVER" screen appears showing the final score and the world/wave reached.
-7. Press **1** from the Game Over screen. If you scored 1000 or more, confirm you go straight to name entry (no ad yet). If you scored under 1000, confirm you see an ad instead, then the app returns to the main menu — skip to step 10.
-8. Enter your name and press Enter. Confirm a "SCORE SUBMITTED" screen appears showing your score. Note: your name will not appear immediately, as it requires manual approval to avoid bad words, but your score will be added with a name like "Player NNNN" until it is approved.
-9. Press **1**. Confirm you see an ad, then the app returns to the main menu.
-10. From the main menu, press **\*** . Confirm a leaderboard screen loads (showing either a list of scores or a "No scores yet" / loading message, depending on network connectivity) — this should never crash the app.
-11. From the leaderboard screen, press **1** to return to the main menu.
+7. On the Game Over screen, if you scored 1000 or more, confirm the options SUBMIT SCORE and MAIN MENU appear with SUBMIT SCORE highlighted; press the **center key** and confirm you go straight to name entry (no ad yet). If you scored under 1000, confirm only MAIN MENU appears; press the **center key**, confirm you see an ad, then the app returns to the main menu — skip to step 10.
+8. Enter your name and press Enter. Confirm a "SCORE SUBMITTED" screen appears showing your score, with CONTINUE highlighted. Note: your name will not appear immediately, as it requires manual approval to avoid bad words, but your score will be added with a name like "Player NNNN" until it is approved.
+9. Press the **center key** on CONTINUE. Confirm you see an ad, then the app returns to the main menu.
+10. From the main menu, highlight LEADERBOARD and press the **center key**. Confirm a leaderboard screen loads (showing either a list of scores or a "No scores yet" / loading message, depending on network connectivity) — this should never crash the app.
+11. On the leaderboard screen, with RETURN TO MAIN MENU highlighted, press the **center key** to return to the main menu.
+12. From the main menu, highlight YOUR RUNS and press the **center key**. Confirm the runs you just played are listed, newest first, with a green check next to the one you submitted. Highlight that run and press the **center key**. Confirm RUN DETAILS shows its score and "Submitted to the leaderboard.", with only a BACK option.
+13. Press the **center key** on BACK, then highlight RETURN TO MAIN MENU and press the **center key** to return to the main menu.
