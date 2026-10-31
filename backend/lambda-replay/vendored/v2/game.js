@@ -272,6 +272,18 @@ var Game = (function () {
     return Math.floor(Rng.next() * (CANVAS_WIDTH - width));
   }
 
+  // How many on-screen typeable words start with each key -- new enemies and
+  // powerups steer away from keys already on screen (see WordBank.pickWord),
+  // so fewer words share a first key and the lock-on target is easier to see.
+  function onScreenFirstDigitCounts() {
+    var counts = {};
+    state.enemies.concat(state.powerups, state.bonusWords).forEach(function (e) {
+      var d = e.code.charAt(0);
+      counts[d] = (counts[d] || 0) + 1;
+    });
+    return counts;
+  }
+
   function spawnEnemy() {
     var range = getWordLengthRangeForWave(state.wave);
     var activeWords = {};
@@ -279,8 +291,9 @@ var Game = (function () {
     var activeWordsSet = {
       has: function (w) { return !!activeWords[w]; }
     };
+    var digitCounts = onScreenFirstDigitCounts();
 
-    var word = WordBank.pickWord(range.minLen, range.maxLen, activeWordsSet);
+    var word = WordBank.pickWord(range.minLen, range.maxLen, activeWordsSet, digitCounts);
 
     // While the half-length powerup is active, spawn a genuinely shorter
     // real word instead — re-picking (not truncating the one just chosen)
@@ -288,7 +301,7 @@ var Game = (function () {
     // Existing on-screen enemies are left untouched (see collectPowerup).
     if (state.halfLengthRemainingMs > 0) {
       var halvedLen = Math.max(2, Math.floor(word.length / 2));
-      word = WordBank.pickWord(halvedLen, halvedLen, activeWordsSet);
+      word = WordBank.pickWord(halvedLen, halvedLen, activeWordsSet, digitCounts);
     }
 
     var code = T9.wordToT9Code(word);
@@ -484,7 +497,7 @@ var Game = (function () {
   }
 
   function spawnPowerup(type, x, y) {
-    var word = WordBank.pickWord(POWERUP_CODE_MIN_LEN, POWERUP_CODE_MAX_LEN, null);
+    var word = WordBank.pickWord(POWERUP_CODE_MIN_LEN, POWERUP_CODE_MAX_LEN, null, onScreenFirstDigitCounts());
     var code = T9.wordToT9Code(word);
     state.powerups.push(Powerup.createPowerup({
       id: state.nextEntityId++,
@@ -1118,10 +1131,9 @@ var Game = (function () {
     state.menuIndex = (state.menuIndex + delta + options.length) % options.length;
   }
 
-  // The center (Enter) key: picks the selected option, like '1'. Deliberately
-  // does nothing during play -- pausing is '1', '*' or '#'.
+  // The center (Enter) key: picks the selected option, like '1'; during play
+  // it pauses, same as '1', '*' or '#'.
   function handleSelectKey() {
-    if (isActiveSimulationMode()) return;
     handleMenuKey();
   }
 
