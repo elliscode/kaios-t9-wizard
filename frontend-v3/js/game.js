@@ -1118,10 +1118,9 @@ var Game = (function () {
     state.menuIndex = (state.menuIndex + delta + options.length) % options.length;
   }
 
-  // The center (Enter) key: picks the selected option, like '1'. Deliberately
-  // does nothing during play -- pausing is '1', '*' or '#'.
+  // The center (Enter) key: picks the selected option, like '1'; during play
+  // it pauses, same as '1', '*' or '#'.
   function handleSelectKey() {
-    if (isActiveSimulationMode()) return;
     handleMenuKey();
   }
 
