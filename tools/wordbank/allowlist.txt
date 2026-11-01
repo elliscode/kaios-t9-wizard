@@ -1,0 +1,11 @@
+# Harmless words that contain a blocked pattern (see hashing.js).
+# One per line. Words here pass the pattern screen; the exact blocklist still applies.
+therapist
+parapet
+unisex
+thorny
+therapeutic
+therapists
+skyscraper
+scrape
+breastplate

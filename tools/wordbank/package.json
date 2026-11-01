@@ -1,0 +1,9 @@
+{
+  "name": "t9-wizard-wordbank",
+  "private": true,
+  "description": "Local-only tooling for growing frontend-v3/data/words-data.js. Not part of the shipped app -- see README.md.",
+  "type": "commonjs",
+  "dependencies": {
+    "wordlist-english": "^1.2.1"
+  }
+}
