@@ -593,12 +593,28 @@ var Game = (function () {
     }
   }
 
+  // Bonus words cross sideways, so "closest to the player" (the lock-on
+  // tiebreak) is the bottom row, not necessarily the one the player wants
+  // to start -- every bonus word on screen must start with its own key.
+  // Same counts as onScreenFirstDigitCounts, but a bonus word weighs far
+  // more than anything else, so a key already used by a bonus word is only
+  // reused once every other key is (a second pickup's batch), never just to
+  // dodge a powerup. Every bonus length has 7+ usable keys (see words.js).
+  function bonusWordFirstDigitCounts() {
+    var counts = onScreenFirstDigitCounts();
+    state.bonusWords.forEach(function (b) {
+      var d = b.code.charAt(0);
+      counts[d] += 100;
+    });
+    return counts;
+  }
+
   function spawnBonusWords() {
     var activeWords = {};
     state.enemies.concat(state.bonusWords).forEach(function (e) { activeWords[e.word] = true; });
     var activeWordsSet = { has: function (w) { return !!activeWords[w]; } };
     for (var i = 0; i < BONUS_WORD_COUNT; i++) {
-      var word = WordBank.pickWord(BONUS_WORD_MIN_LEN, BONUS_WORD_MAX_LEN, activeWordsSet);
+      var word = WordBank.pickWord(BONUS_WORD_MIN_LEN, BONUS_WORD_MAX_LEN, activeWordsSet, bonusWordFirstDigitCounts());
       activeWords[word] = true;
       var width = Math.max(MIN_BLOCK_WIDTH, word.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
       // i = 0 is the bottom row and enters first; each row up starts one

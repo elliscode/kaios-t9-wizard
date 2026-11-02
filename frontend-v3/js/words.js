@@ -101,9 +101,10 @@ var WordBank = (function () {
       word = bucket[Math.floor(Rng.next() * bucket.length)];
       if (!activeWordsSet || !activeWordsSet.has(word)) return word;
     }
-    // Fallback after MAX_ATTEMPTS: accept a duplicate rather than loop forever.
+    // Fallback after MAX_ATTEMPTS: accept a duplicate rather than loop forever
+    // (still on a steered first key, when given -- bonus words rely on it).
     len = minLen + Math.floor(Rng.next() * (maxLen - minLen + 1));
-    bucket = wordsByLength[String(len)];
+    bucket = onScreenDigitCounts ? pickBucketFor(len, onScreenDigitCounts) : wordsByLength[String(len)];
     return bucket[Math.floor(Rng.next() * bucket.length)];
   }
 
