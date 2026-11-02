@@ -6,4 +6,5 @@ zip -r t9wizard-${TIMESTAMP}.zip . \
   -x "*release.sh" \
   -x "final-menu.png" \
   -x "assets/banner.png" \
-  -x "assets/screenshot*.png"
+  -x "assets/screenshot*.png" \
+  -x "assets/youtube-thumbnail.png"

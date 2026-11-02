@@ -1,0 +1,665 @@
+# Christmas seed phrases for `node candidates.js --theme christmas`.
+# One phrase per line, written with spaces ("yule log"); they're run together
+# in the game ("yulelog"). Every part must be in the dictionary, except below
+# the "# names" line. Order matters: candidates.js takes phrases in file
+# order up to each length's target, so put the most recognizable first.
+# Phrases already in CHRISTMAS_WORDS_BY_LENGTH are skipped automatically.
+
+# --- the season ---
+christmas eve
+christmas day
+merry christmas
+happy holidays
+season greetings
+holiday season
+festive season
+joyful season
+merry season
+yuletide
+yuletide joy
+yuletide cheer
+midwinter
+winter solstice
+twelve days
+twelfth night
+advent
+advent wreath
+advent candle
+advent candles
+new year
+new years eve
+new years day
+countdown
+holiday cheer
+holiday party
+holiday cards
+holiday treats
+holiday music
+holiday magic
+festive cheer
+good cheer
+glad tidings
+good tidings
+tidings of joy
+peace on earth
+goodwill
+joy to all
+merry and bright
+merriment
+merrymaking
+celebrate
+celebrating
+festivities
+traditions
+tradition
+family time
+family dinner
+family photo
+together
+thankful
+thankfulness
+gratitude
+kindness
+generosity
+giving
+believing
+wonder
+wonderful
+wonderland
+magical
+miracle on ice
+spirit of giving
+
+# --- gifts ---
+presents
+open presents
+opening gifts
+unwrapping
+unwrap gifts
+wrapped gift
+wrapped gifts
+gift wrapping
+gift giving
+gift tags
+gift tag
+gift basket
+gift card
+gift bow
+big red bow
+ribbon bows
+red ribbon
+velvet ribbon
+velvet bow
+wrapping
+tissue paper
+tape and bows
+surprise gift
+secret santa
+wish list
+wishes
+wishing star
+wishing well
+warm wishes
+best wishes
+merry wishes
+stocking
+stockings
+stocking cap
+stuffed stocking
+toy shop
+toy soldier
+toy soldiers
+toy train
+toy trains
+toy drum
+toy box
+wooden toys
+wooden sled
+tin soldier
+tin soldiers
+rocking horse
+jack in the box
+music box
+music boxes
+kaleidoscope
+spinning top
+puzzle box
+dollhouse
+under the tree
+
+# --- tree and decorations ---
+evergreen
+evergreens
+fir tree
+fir trees
+fir branches
+pine tree
+pine trees
+pine needles
+pine cones
+pine scent
+noble fir
+spruce tree
+tree farm
+tree lot
+tree stand
+tree skirt
+tree topper
+tree lights
+tree trimming
+trim the tree
+decorations
+decorate
+ornaments
+ornament hook
+glass ornament
+bright star
+shining star
+gold star
+silver star
+tinsel tree
+garlands
+popcorn string
+paper chain
+string lights
+white lights
+tiny lights
+light display
+lights display
+icicle lights
+twinkling
+twinkle lights
+glowing lights
+candlelight
+candlesticks
+lit candles
+lantern light
+lanterns
+window lights
+wreath
+wreaths
+winter wreath
+holly wreath
+holly leaves
+holly berries
+mistletoe
+ivy
+poinsettia
+poinsettias
+red and green
+gold and silver
+silver bells
+gold bells
+jingle bells
+sleigh bells
+bell ringer
+bell ringers
+bells ringing
+mantel
+mantelpiece
+fireplace
+fireside
+warm fireside
+hearth
+chimney
+chimney sweep
+yule candle
+nativity play
+manger scene
+manger
+shepherds
+angel wings
+angel choir
+heavenly
+heavenly host
+star of wonder
+
+# --- food and drink ---
+cookies
+sugar cookies
+bake cookies
+baking
+baked goods
+cookie jar
+cookie tray
+cookie cutter
+cookie dough
+gingerbread
+gingerbread house
+ginger cookies
+candy canes
+candy dish
+candy jar
+peppermint
+peppermints
+peppermint bark
+chocolate
+chocolates
+hot cocoa
+hot chocolate
+warm cocoa
+mug of cocoa
+marshmallow
+marshmallows
+whipped cream
+hot cider
+mulled cider
+apple cider
+cranberry
+cranberries
+cranberry sauce
+cinnamon
+cinnamon roll
+cinnamon buns
+nutmeg
+cloves
+roast turkey
+turkey dinner
+turkey roast
+stuffing
+gravy
+mashed potato
+roast beast
+plum pudding
+figgy pudding
+mince pie
+mince pies
+fruitcake
+chestnuts
+roasted nuts
+walnuts
+pecan pie
+pumpkin pie
+apple pie
+sweet treats
+yummy treats
+treats
+toffee
+fudge
+truffles
+caramel
+butterscotch
+lollipops
+gumdrops
+sugar plums
+sugarplum
+eggnog
+punch bowl
+wassail bowl
+tea cakes
+shortbread
+dinner table
+feast
+yule feast
+honey ham
+dinner rolls
+popcorn
+kettle corn
+oven mitts
+
+# --- snow and winter ---
+snowflake
+snowflakes
+snowfall
+snowdrifts
+snowstorm
+snowballs
+snow angels
+snow angel
+snow day
+snow fort
+snowshoes
+snowplow
+snowy night
+snowy owl
+snowy hills
+fresh snow
+white snow
+falling snow
+melting snow
+first snow
+blizzard
+frosty air
+frost
+frosted window
+window frost
+jack frost
+icicle
+icy
+ice skates
+ice skating
+lake skating
+skating rink
+sledding
+sled ride
+sleigh ride
+santa sleigh
+toboggan
+tobogganing
+toboggan ride
+kids sledding
+winter coat
+winter hat
+winter night
+winter break
+winter storm
+winter sports
+winter scene
+winter cheer
+winter boots
+long winter
+north wind
+cold night
+chilly
+chilly night
+cozy
+cozy cabin
+cozy sweater
+cozy blanket
+warm blanket
+warm socks
+wool socks
+wool scarf
+wool mittens
+knit mittens
+knit sweater
+knitted cap
+knitting
+mittens
+earmuffs
+scarves
+sweaters
+ugly sweater
+log cabin
+log fire
+kindling
+crackling
+crackling fire
+toasty warm
+moonlit snow
+night sky
+starry night
+northern lights
+
+# --- carols and music ---
+carols
+caroling
+carolers
+carol singers
+carol singing
+silent night
+holy night
+oh holy night
+deck the halls
+joy to the world
+jolly holiday
+jolly old elf
+joyful noise
+joyous
+little drummer
+drummer boy
+marching band
+lullaby
+lullabies
+hymns
+choir
+choirs
+hallelujah
+trumpets
+fanfare
+sing along
+glory
+noel
+
+# --- santa and the north pole ---
+north pole
+workshop
+elf workshop
+elves
+elf hat
+elf shoes
+naughty list
+nice list
+naughty or nice
+letter to santa
+letters to santa
+reindeer food
+reindeer games
+red nose
+sleigh
+sleighs
+chimney top
+rooftop
+rooftops
+lump of coal
+cookies and milk
+milk and cookies
+night before
+visions
+stocking stuffer
+present pile
+
+# --- short words (4-7 letters), weighted to thin keys jkl, mno, tuv, wxyz ---
+bell
+bows
+gift
+gifts
+yule
+snow
+star
+tree
+sled
+toys
+wish
+glow
+warm
+hats
+hymn
+mint
+pine
+kiss
+kids
+lace
+list
+lump
+milk
+nuts
+pies
+plum
+ring
+roof
+sing
+sock
+socks
+tags
+tape
+wool
+yarn
+wrap
+yams
+bake
+buns
+cake
+cane
+card
+cards
+deer
+doll
+dove
+doves
+drum
+fire
+foil
+gold
+harp
+hush
+jams
+knit
+logs
+mitt
+mitts
+moon
+oven
+pole
+quilt
+rink
+robe
+sack
+scarf
+skis
+soup
+stew
+tea
+tops
+trim
+tuba
+tune
+tunes
+vest
+wax
+wick
+wind
+wing
+wings
+wink
+jolly
+joys
+jingle
+jingling
+kind
+kisses
+knits
+kings
+lamb
+lambs
+lamp
+lamps
+lists
+lumps
+lute
+laugh
+laughs
+laughter
+ladle
+lodge
+loaf
+loaves
+lords
+leaping
+lyrics
+toast
+toasts
+treat
+trays
+tidy
+town
+tuxedo
+twig
+twigs
+twine
+twirl
+twirling
+unwrap
+usher
+velvet
+vigil
+village
+violin
+visit
+visits
+visitors
+waltz
+wishbone
+warmth
+wintry
+woolly
+walnut
+wagon
+window
+windows
+wooden
+white
+young
+yodel
+zest
+zing
+mints
+mugs
+mull
+myrrh
+naps
+nest
+nice
+night
+nights
+nook
+owls
+orange
+oranges
+napkin
+napkins
+merry
+mirth
+
+light show
+lambs wool
+log cabins
+kind words
+kind heart
+merrymaker
+night light
+moonlit sky
+mug of cider
+music notes
+
+# names
+santa hat
+santa suit
+santa sack
+santas sleigh
+christmas ham
+christmas pie
+twas the night
+star topper
+teddy bear
+twinkly
+candlelit
+lamplight
+lamplighter
+santa claus
+kris kringle
+saint nick
+old saint nick
+mrs claus
+father frost
+jacob marley
+mouse king
+drosselmeyer
+whoville
+mount crumpit
+tannenbaum
+feliz navidad
+bethlehem
+wenceslas
+good king
+xmas
+xmas eve
+xmas day
+xmas tree
+xmas lights
+xmas cards
+xmas gifts
+xmas carols
+xmas morning
+xmas stocking
+xmas cookies
+xmas spirit
+xmas wishes
+xmas party
+xmas dinner
+xmas list
+lapland
+krisskross
+ho ho ho
+fa la la
+falalala

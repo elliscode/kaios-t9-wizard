@@ -11,9 +11,13 @@ var Game = (function () {
     // GET /leaderboard from the menu (see enterLeaderboard).
     CONNECTING: 'connecting', NAME_ENTRY: 'name_entry', SUBMITTING: 'submitting', SUBMITTED: 'submitted',
     LEADERBOARD: 'leaderboard',
-    // A confirmation step between PAUSED and actually quitting -- see
-    // handleQuitKey -- so an accidental '*' press can't abandon a run.
+    // A confirmation step between the pause menu's QUIT RUN and actually
+    // quitting -- see activateMenuOption -- so a stray press can't abandon a run.
     CONFIRM_QUIT: 'confirm_quit',
+    // Local history of this device's recent runs (see js/runhistory.js),
+    // and one run's details, from which a failed submission can be retried.
+    YOUR_RUNS: 'your_runs',
+    RUN_DETAIL: 'run_detail',
     // Gated interstitial ad -- see showGatedAd -- entered from a
     // non-submittable GAMEOVER, CONFIRM_QUIT, or (for a submittable
     // GAMEOVER) from SUBMITTED once the score is safely in -- see
@@ -22,6 +26,36 @@ var Game = (function () {
     // PAUSED/CONFIRM_QUIT unwrap to the frozen sim underneath.
     AD: 'ad'
   };
+
+  // Every screen that's a list of options: up/down moves the << >> selection
+  // (state.menuIndex), the center key or '1' picks it -- see handleNavKey/
+  // handleMenuKey. render.js draws these same labels, in this same order.
+  var MENU_OPTIONS = {};
+  MENU_OPTIONS[STATE.MENU] = ['NEW RUN', 'LEADERBOARD', 'YOUR RUNS'];
+  MENU_OPTIONS[STATE.LEADERBOARD] = ['RETURN TO MAIN MENU', 'OPEN TOP 500'];
+  // YOUR_RUNS and RUN_DETAIL options depend on the runs -- see menuOptions.
+  MENU_OPTIONS[STATE.PAUSED] = ['RESUME', 'QUIT RUN'];
+  MENU_OPTIONS[STATE.CONFIRM_QUIT] = ['KEEP PLAYING', 'YES, QUIT'];
+  // The options on the current screen. YOUR RUNS: one per listed run, then
+  // RETURN. A run's details: RESUBMIT SCORE only when that can work.
+  function menuOptions(state) {
+    if (state.mode === STATE.YOUR_RUNS) {
+      return (state.yourRuns || []).map(function () { return 'RUN'; }).concat(['RETURN TO MAIN MENU']);
+    }
+    if (state.mode === STATE.RUN_DETAIL) {
+      return runStatus(state.selectedRun) === 'resubmittable' ? ['RESUBMIT SCORE', 'BACK'] : ['BACK'];
+    }
+    // End of a run: submitting is optional -- MAIN MENU skips it, leaving
+    // the run resubmittable later from YOUR RUNS.
+    if (state.mode === STATE.GAMEOVER || state.mode === STATE.WIN) {
+      return isRunSubmittable(state) ? ['SUBMIT SCORE', 'MAIN MENU'] : ['MAIN MENU'];
+    }
+    if (state.mode === STATE.SUBMITTED) return ['CONTINUE'];
+    return MENU_OPTIONS[state.mode] || null;
+  }
+
+  var MAIN_MENU_LEADERBOARD_INDEX = 1;
+  var MAIN_MENU_YOUR_RUNS_INDEX = 2;
 
   var ENEMIES_PER_WAVE = 20;
   var STARTING_LIVES = 3;
@@ -74,10 +108,39 @@ var Game = (function () {
   // kill, tunable individually here. At most one powerup ever spawns per kill
   // (see rollPowerupSpawns) — letting more than one hit on the same kill would
   // stack multiple blocks at the exact same spot, rendering unreadable.
-  var POWERUP_PROBABILITIES = { extraLife: 1 / 100, halfSpeed: 1 / 100, halfLength: 1 / 100, screenWipe: 1 / 100 };
-  var POWERUP_COLORS = { extraLife: 'white', halfSpeed: 'lightblue', halfLength: 'lightcoral', screenWipe: 'khaki' };
-  var POWERUP_DISPLAY_NAMES = { extraLife: 'EXTRA LIFE', halfSpeed: 'HALF SPEED', halfLength: 'SHORT WORDS', screenWipe: 'SCREEN WIPE' };
+  //
+  // extraLife is in every season; the other three slots rotate per season
+  // (see docs/v2-todo.md). Only types listed in POWERUP_PROBABILITIES ever
+  // spawn -- Season 1's halfSpeed/halfLength/screenWipe are retired for
+  // Season 2 but their effect code below is kept, dormant, so a later season
+  // can rotate them back in just by listing them here again.
+  var POWERUP_PROBABILITIES = { extraLife: 1 / 100, multiplierShield: 1 / 100, bonusWords: 1 / 100, timeFreeze: 1 / 100 };
+  var POWERUP_COLORS = {
+    extraLife: 'white', multiplierShield: 'yellow', bonusWords: 'violet', timeFreeze: 'lightblue',
+    halfSpeed: 'lightblue', halfLength: 'plum', screenWipe: 'khaki'
+  };
+  var POWERUP_DISPLAY_NAMES = {
+    extraLife: 'EXTRA LIFE', multiplierShield: 'MULTIPLIER SHIELD', bonusWords: 'BONUS WORDS', timeFreeze: 'TIME FREEZE',
+    halfSpeed: 'HALF SPEED', halfLength: 'SHORT WORDS', screenWipe: 'SCREEN WIPE'
+  };
   var POWERUP_EFFECT_DURATION_MS = 10000;
+  var TIME_FREEZE_DURATION_MS = 10000;
+  // Bonus words: picking the powerup first wipes every falling word (scored
+  // like Season 1's screenWipe), then sends long, harmless words sideways
+  // across their own rows near the top. No new falling words spawn until
+  // they've all been typed or crossed -- a short bonus round, rather than
+  // bonus words on top of a full screen of threats.
+  var BONUS_WORD_COUNT = 5;
+  var BONUS_WORD_MIN_LEN = 10;
+  var BONUS_WORD_MAX_LEN = 12;
+  var BONUS_WORD_SPEED = 45; // px/sec, tunable -- roughly 6-8s to cross a 240px screen
+  var BONUS_WORD_FIRST_ROW_Y = 34;
+  var BONUS_WORD_ROW_SPACING = 34; // block + word label + breathing room
+  // They always enter from the right (so the first letter is the first thing
+  // on screen) in a staircase: bottom row first, each row above it this many
+  // px further back, so once all are in they read as steps rising rightward.
+  var BONUS_WORD_STAIR_STEP = 48;
+  var BONUS_WORD_ROW_GAP = 24; // min px between two bonus words sharing a row (a second pickup's batch)
   var POWERUP_FLASH_DURATION_MS = 2000;
   var POWERUP_RISE_SPEED = 20; // px/sec, tunable
   var POWERUP_SIZE = 24; // small fixed square; icons come later, no word-length sizing needed
@@ -124,6 +187,7 @@ var Game = (function () {
       pausedFromMode: null,
       enemies: [],
       powerups: [],
+      bonusWords: [],
       boss: null,
       transition: null,
       nextEntityId: 1,
@@ -135,6 +199,8 @@ var Game = (function () {
       usedSentences: {},
       halfSpeedRemainingMs: 0,
       halfLengthRemainingMs: 0,
+      timeFreezeRemainingMs: 0,
+      multiplierShields: 0,
       powerupFlash: null,
       waveCompletePending: false,
       spawnAccumulator: 0,
@@ -156,10 +222,25 @@ var Game = (function () {
       pendingGameOverAd: false,
       leaderboardEntries: null,
       leaderboardError: null,
+      // UI-only: which option is selected on the current menu screen, and
+      // the YOUR RUNS list being shown. Never saved, never part of a replay.
+      menuIndex: 0,
+      yourRuns: null,
+      // RUN_DETAIL: the history entry being shown, and its row in YOUR RUNS
+      // (to return to). resubmitRunId: set while a YOUR RUNS resubmission is
+      // in flight, so SUBMITTED returns there instead of the main menu.
+      selectedRun: null,
+      selectedRunIndex: 0,
+      resubmitRunId: null,
+      // Set once this run's end has been written to RunHistory.
+      runEndNoted: false,
       score: 0,
       scoreMultiplier: 1,
       wordCombo: 0,
       currentWordHadMistake: false,
+      // Set by the first real mistake on the letter currently being typed,
+      // cleared by the next correct letter -- see applyTypingResult.
+      mistakeOnCurrentLetter: false,
       errorFlash: null,
       player: {
         x: CANVAS_WIDTH / 2 - 20,
@@ -191,6 +272,18 @@ var Game = (function () {
     return Math.floor(Rng.next() * (CANVAS_WIDTH - width));
   }
 
+  // How many on-screen typeable words start with each key -- new enemies and
+  // powerups steer away from keys already on screen (see WordBank.pickWord),
+  // so fewer words share a first key and the lock-on target is easier to see.
+  function onScreenFirstDigitCounts() {
+    var counts = {};
+    state.enemies.concat(state.powerups, state.bonusWords).forEach(function (e) {
+      var d = e.code.charAt(0);
+      counts[d] = (counts[d] || 0) + 1;
+    });
+    return counts;
+  }
+
   function spawnEnemy() {
     var range = getWordLengthRangeForWave(state.wave);
     var activeWords = {};
@@ -198,8 +291,9 @@ var Game = (function () {
     var activeWordsSet = {
       has: function (w) { return !!activeWords[w]; }
     };
+    var digitCounts = onScreenFirstDigitCounts();
 
-    var word = WordBank.pickWord(range.minLen, range.maxLen, activeWordsSet);
+    var word = WordBank.pickWord(range.minLen, range.maxLen, activeWordsSet, digitCounts);
 
     // While the half-length powerup is active, spawn a genuinely shorter
     // real word instead — re-picking (not truncating the one just chosen)
@@ -207,7 +301,7 @@ var Game = (function () {
     // Existing on-screen enemies are left untouched (see collectPowerup).
     if (state.halfLengthRemainingMs > 0) {
       var halvedLen = Math.max(2, Math.floor(word.length / 2));
-      word = WordBank.pickWord(halvedLen, halvedLen, activeWordsSet);
+      word = WordBank.pickWord(halvedLen, halvedLen, activeWordsSet, digitCounts);
     }
 
     var code = T9.wordToT9Code(word);
@@ -232,6 +326,12 @@ var Game = (function () {
 
   function updateSpawning(dt) {
     if (state.spawnedThisWave >= ENEMIES_PER_WAVE) return;
+    // A freeze pauses the spawn clock too, not just movement -- otherwise
+    // fresh enemies would keep piling in while the frozen ones sit there,
+    // undercutting the breather the powerup is for.
+    if (state.timeFreezeRemainingMs > 0) return;
+    // Same for a Bonus Words round: falling words wait until it's over.
+    if (state.bonusWords.length > 0) return;
     state.spawnAccumulator += dt;
     while (state.spawnAccumulator >= SPAWN_INTERVAL_MS && state.spawnedThisWave < ENEMIES_PER_WAVE) {
       spawnEnemy();
@@ -246,7 +346,7 @@ var Game = (function () {
     // baseSpeed rather than mutating .speed on collection — so repeat
     // half-speed pickups can never compound toward zero, and speed reverts
     // to normal the instant the effect's duration elapses.
-    var multiplier = state.halfSpeedRemainingMs > 0 ? 0.5 : 1;
+    var multiplier = state.timeFreezeRemainingMs > 0 ? 0 : (state.halfSpeedRemainingMs > 0 ? 0.5 : 1);
     state.enemies.forEach(function (e) {
       e.y += e.baseSpeed * multiplier * dtSeconds;
     });
@@ -262,8 +362,7 @@ var Game = (function () {
         // Getting hit always breaks the perfect-word streak and flashes the
         // screen, exactly like a real typing mistake -- regardless of
         // whether this particular enemy was the one actually locked/typed.
-        state.wordCombo = 0;
-        state.scoreMultiplier = 1;
+        breakStreak();
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
         if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.HIT);
         // Only clear the typing buffer if THIS enemy was the locked one --
@@ -293,6 +392,11 @@ var Game = (function () {
     // through the transition and any subsequent boss fight, then reappear
     // later. Consistent with the existing "scrolled off = lost, no penalty".
     state.powerups = [];
+    // Same for bonus words, and a still-running freeze: a freeze triggered
+    // by the wave's last kill would otherwise carry into the next wave and
+    // hold its spawning paused.
+    state.bonusWords = [];
+    state.timeFreezeRemainingMs = 0;
     InputEngine.reset();
     state.mode = STATE.TRANSITION;
     state.transition = { timerMs: TRANSITION_DURATION_MS, isBoss: isBoss };
@@ -354,6 +458,8 @@ var Game = (function () {
     // in flight before moving on — killing the last enemy shouldn't yank
     // away powerups the player hasn't had a chance to type yet.
     if (state.powerups.length > 0) return;
+    // Same courtesy for bonus words still crossing the screen.
+    if (state.bonusWords.length > 0) return;
     // Don't cut a powerup announcement short by jumping into the next-wave/
     // boss transition mid-flash — finish showing it first. updatePowerupTimers
     // picks this back up and proceeds the instant the flash naturally clears.
@@ -391,7 +497,7 @@ var Game = (function () {
   }
 
   function spawnPowerup(type, x, y) {
-    var word = WordBank.pickWord(POWERUP_CODE_MIN_LEN, POWERUP_CODE_MAX_LEN, null);
+    var word = WordBank.pickWord(POWERUP_CODE_MIN_LEN, POWERUP_CODE_MAX_LEN, null, onScreenFirstDigitCounts());
     var code = T9.wordToT9Code(word);
     state.powerups.push(Powerup.createPowerup({
       id: state.nextEntityId++,
@@ -473,6 +579,100 @@ var Game = (function () {
     });
   }
 
+  // Every real mistake (typo, enemy or boss sentence reaching the player)
+  // breaks the per-word letter combo and, normally, the run's multiplier.
+  // A Multiplier Shield is spent instead of the multiplier -- one shield per
+  // event, so two enemies escaping on the same tick cost two. Life loss is
+  // handled by the callers and is never blocked by a shield.
+  function breakStreak() {
+    state.wordCombo = 0;
+    if (state.multiplierShields > 0) {
+      state.multiplierShields -= 1;
+    } else {
+      state.scoreMultiplier = 1;
+    }
+  }
+
+  // Bonus words cross sideways, so "closest to the player" (the lock-on
+  // tiebreak) is the bottom row, not necessarily the one the player wants
+  // to start -- every bonus word on screen must start with its own key.
+  // Same counts as onScreenFirstDigitCounts, but a bonus word weighs far
+  // more than anything else, so a key already used by a bonus word is only
+  // reused once every other key is (a second pickup's batch), never just to
+  // dodge a powerup. Every bonus length has 7+ usable keys (see words.js).
+  function bonusWordFirstDigitCounts() {
+    var counts = onScreenFirstDigitCounts();
+    state.bonusWords.forEach(function (b) {
+      var d = b.code.charAt(0);
+      counts[d] += 100;
+    });
+    return counts;
+  }
+
+  function spawnBonusWords() {
+    var activeWords = {};
+    state.enemies.concat(state.bonusWords).forEach(function (e) { activeWords[e.word] = true; });
+    var activeWordsSet = { has: function (w) { return !!activeWords[w]; } };
+    for (var i = 0; i < BONUS_WORD_COUNT; i++) {
+      var word = WordBank.pickWord(BONUS_WORD_MIN_LEN, BONUS_WORD_MAX_LEN, activeWordsSet, bonusWordFirstDigitCounts());
+      activeWords[word] = true;
+      var width = Math.max(MIN_BLOCK_WIDTH, word.length * CHAR_WIDTH_ESTIMATE * 0.6 + 12);
+      // i = 0 is the bottom row and enters first; each row up starts one
+      // stair step further off the right edge.
+      var rowY = BONUS_WORD_FIRST_ROW_Y + (BONUS_WORD_COUNT - 1 - i) * BONUS_WORD_ROW_SPACING;
+      var x = CANVAS_WIDTH + i * BONUS_WORD_STAIR_STEP;
+      // A second pickup while the first batch is still crossing: every row
+      // moves the same direction at the same speed, so queueing the new
+      // word behind whatever's already in its row is enough to keep the two
+      // from ever overlapping.
+      state.bonusWords.forEach(function (other) {
+        if (other.y !== rowY) return;
+        x = Math.max(x, other.x + other.width + BONUS_WORD_ROW_GAP);
+      });
+      state.bonusWords.push(Enemy.createBonusWord({
+        id: state.nextEntityId++,
+        word: word,
+        code: T9.wordToT9Code(word),
+        x: x,
+        y: rowY,
+        width: width,
+        height: BLOCK_HEIGHT,
+        color: Colors.colorForWordLength(word.length),
+        vx: -BONUS_WORD_SPEED
+      }));
+    }
+  }
+
+  // Bonus words only ever move sideways and never reach the player -- one
+  // leaving the far edge is simply gone, no life lost and no streak broken.
+  function updateBonusWords(dt) {
+    if (state.bonusWords.length === 0) return;
+    if (state.timeFreezeRemainingMs > 0) return; // frozen along with everything else
+    var dtSeconds = dt / 1000;
+    var stillCrossing = [];
+    state.bonusWords.forEach(function (b) {
+      b.x += b.vx * dtSeconds;
+      var gone = b.vx > 0 ? b.x > CANVAS_WIDTH : b.x + b.width < 0;
+      if (!gone) {
+        stillCrossing.push(b);
+      } else if (b.id === InputEngine.getLockedEnemyId()) {
+        InputEngine.reset(); // mirrors a powerup scrolling off while locked
+      }
+    });
+    state.bonusWords = stillCrossing;
+    checkWaveComplete();
+  }
+
+  // Scored like any enemy (via applyTypingResult) but deliberately not one
+  // of the wave's 20 -- doesn't touch resolvedThisWave -- and never rolls a
+  // powerup, so a Bonus Words pickup can't chain into more pickups.
+  function handleBonusKill(id) {
+    state.bonusWords = state.bonusWords.filter(function (b) { return b.id !== id; });
+    if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.KILL);
+    checkWaveComplete();
+    SaveGame.save(state);
+  }
+
   function applyPowerupEffect(type) {
     if (type === 'extraLife') {
       state.lives += 1;
@@ -482,6 +682,16 @@ var Game = (function () {
       state.halfLengthRemainingMs = POWERUP_EFFECT_DURATION_MS;
       applyHalfLengthToExistingEnemies();
     } else if (type === 'screenWipe') {
+      wipeScreen();
+    } else if (type === 'multiplierShield') {
+      state.multiplierShields += 1;
+    } else if (type === 'timeFreeze') {
+      state.timeFreezeRemainingMs = TIME_FREEZE_DURATION_MS;
+    } else if (type === 'bonusWords') {
+      // Bonus words go in BEFORE the wipe: wipeScreen() ends with
+      // checkWaveComplete(), and if it just cleared the wave's last enemies
+      // the wave would otherwise move on before the bonus round even began.
+      spawnBonusWords();
       wipeScreen();
     }
   }
@@ -557,8 +767,7 @@ var Game = (function () {
       // An incomplete sentence reaching the player is a failed attempt at
       // "one long word" -- breaks the perfect-word multiplier streak and
       // flashes the screen, exactly like a real typing mistake.
-      state.wordCombo = 0;
-      state.scoreMultiplier = 1;
+      breakStreak();
       state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
       if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.HIT);
       if (state.lives <= 0) {
@@ -620,6 +829,16 @@ var Game = (function () {
     if (state.halfLengthRemainingMs > 0) {
       state.halfLengthRemainingMs = Math.max(0, state.halfLengthRemainingMs - dt);
     }
+    if (state.timeFreezeRemainingMs > 0) {
+      // Nothing left to freeze (every falling and bonus word typed): end it
+      // now rather than leaving the player staring at an empty, frozen
+      // screen with spawning still paused for the rest of the timer.
+      if (state.enemies.length === 0 && state.bonusWords.length === 0) {
+        state.timeFreezeRemainingMs = 0;
+      } else {
+        state.timeFreezeRemainingMs = Math.max(0, state.timeFreezeRemainingMs - dt);
+      }
+    }
     if (state.powerupFlash) {
       state.powerupFlash.timerMs -= dt;
       if (state.powerupFlash.timerMs <= 0) {
@@ -651,6 +870,8 @@ var Game = (function () {
       if (state.mode !== STATE.PLAYING) return;
       updateSpawning(dt);
       updateEnemies(dt);
+      updateBonusWords(dt);
+      if (state.mode !== STATE.PLAYING) return; // the last bonus word leaving can end the wave
       updatePowerups(dt);
       checkCollisions();
     } else if (state.mode === STATE.TRANSITION) {
@@ -733,8 +954,48 @@ var Game = (function () {
   // From game-over/win, "Press 1" now returns to the main menu screen rather
   // than immediately starting a new run — makeInitialState() already defaults
   // to STATE.MENU, so this doubles as a full, clean reset of HUD/state too.
-  function returnToMenu() {
+  function returnToMenu(menuIndex) {
     state = makeInitialState();
+    state.menuIndex = menuIndex || 0;
+  }
+
+  // Writes a finished run to the YOUR RUNS history, once. Called only from
+  // live play -- the game loop and the real keypress path -- never from
+  // replayRun, so verifying a run (here or in the replay Lambda) can't log
+  // a phantom one. RunHistory isn't loaded in the Lambda's sandbox at all.
+  function noteRunEnd(outcome) {
+    if (state.runEndNoted || state.bossRush || typeof RunHistory === 'undefined') return;
+    state.runEndNoted = true;
+    // Keep what /submit needs for any run that could go on the leaderboard,
+    // so a submission that fails now can be retried from YOUR RUNS.
+    var submittable = outcome !== 'quit' && isRunSubmittable(state);
+    RunHistory.record({
+      runId: state.runId,
+      startedAt: state.runStartedAt,
+      outcome: outcome,
+      score: state.score,
+      world: worldOfWave(state.wave),
+      wave: waveInWorld(state.wave)
+    }, submittable ? buildSubmitPayload() : null);
+  }
+
+  // Why a YOUR RUNS entry can or can't be (re)submitted -- drives its details
+  // screen and whether RESUBMIT SCORE is offered.
+  function runStatus(run) {
+    if (!run) return 'none';
+    if (run.submitted) return 'submitted';
+    if (run.outcome === 'quit') return 'quit';
+    if (!run.runId) return 'offline';
+    if (run.score < MIN_SUBMITTABLE_SCORE) return 'low_score';
+    if (run.gone) return 'gone';
+    if (run.startedAt && Date.now() - run.startedAt > RUN_EXPIRATION_MS) return 'expired';
+    if (!run.hasPayload) return 'no_data';
+    return 'resubmittable';
+  }
+
+  function noteRunEndIfNeeded() {
+    if (state.mode === STATE.GAMEOVER) noteRunEnd('gameover');
+    else if (state.mode === STATE.WIN) noteRunEnd('win');
   }
 
   // The exact three modes that advance time — the only ones that can be
@@ -749,6 +1010,7 @@ var Game = (function () {
   function pauseGame() {
     state.pausedFromMode = state.mode;
     state.mode = STATE.PAUSED;
+    state.menuIndex = 0; // RESUME
     // Pausing (manual, auto-on-stall, or the tab being hidden) is exactly
     // the moment the app might get backgrounded/closed next, so it doubles
     // as a save checkpoint.
@@ -807,68 +1069,102 @@ var Game = (function () {
     });
   }
 
-  function handleMenuKey() {
+  // Runs the currently selected option on a menu screen (see MENU_OPTIONS).
+  function activateMenuOption() {
+    var option = menuOptions(state)[state.menuIndex];
     if (state.mode === STATE.MENU) {
-      resetGame();
-    } else if (state.mode === STATE.WIN) {
-      // A win never shows an ad -- only losing/quitting does (see
-      // showGatedAd).
-      if (isRunSubmittable(state)) {
-        enterNameEntry();
+      if (option === 'NEW RUN') resetGame();
+      else if (option === 'LEADERBOARD') enterLeaderboard();
+      else if (option === 'YOUR RUNS') enterYourRuns();
+    } else if (state.mode === STATE.LEADERBOARD) {
+      if (option === 'RETURN TO MAIN MENU') returnToMenu(MAIN_MENU_LEADERBOARD_INDEX);
+      else if (option === 'OPEN TOP 500') openFullLeaderboard();
+    } else if (state.mode === STATE.YOUR_RUNS) {
+      if (option === 'RUN') enterRunDetail(state.menuIndex);
+      else returnToMenu(MAIN_MENU_YOUR_RUNS_INDEX);
+    } else if (state.mode === STATE.RUN_DETAIL) {
+      if (option === 'RESUBMIT SCORE') {
+        state.resubmitRunId = state.selectedRun.runId;
+        enterNameEntry(handleResubmitName);
       } else {
-        returnToMenu();
+        enterYourRuns(state.selectedRunIndex);
+      }
+    } else if (state.mode === STATE.PAUSED) {
+      if (option === 'RESUME') resumeGame();
+      else if (option === 'QUIT RUN') {
+        // A confirmation step, defaulting to the safe choice, so an
+        // accidental press can't abandon a run.
+        state.mode = STATE.CONFIRM_QUIT;
+        state.menuIndex = 0;
       }
     } else if (state.mode === STATE.GAMEOVER) {
-      // A game over is a legitimate, submittable result too (see
-      // submit_route) -- not just a real win. A submittable run goes
-      // straight to name entry, no ad gate in front of it -- the ad owed
-      // for losing is deferred until after the score is safely submitted
-      // (see pendingGameOverAd/the SUBMITTED branch below), so an ad
-      // interaction that hijacks/closes the app can cost at most the ad
-      // impression, never the player's leaderboard entry (this used to gate
-      // entry into name entry itself, which could and did lose real
-      // submissions this way). A non-submittable run has no leaderboard
-      // step to protect, so it's unchanged: ad immediately, then the menu.
-      if (isRunSubmittable(state)) {
+      // Submitting goes straight to name entry, no ad in front of it -- the
+      // ad owed for losing is deferred until after the score is safely
+      // submitted (see pendingGameOverAd and SUBMITTED below), so an ad
+      // that hijacks/closes the app can cost at most the ad impression,
+      // never the player's leaderboard entry (gating name entry itself
+      // behind the ad could and did lose real submissions). Skipping the
+      // submission has no leaderboard step to protect: ad, then the menu.
+      if (option === 'SUBMIT SCORE') {
         state.pendingGameOverAd = true;
         enterNameEntry();
       } else {
         showGatedAd(returnToMenu);
       }
+    } else if (state.mode === STATE.WIN) {
+      // A win never shows an ad -- only losing/quitting does (see showGatedAd).
+      if (option === 'SUBMIT SCORE') enterNameEntry();
+      else returnToMenu();
     } else if (state.mode === STATE.SUBMITTED) {
-      if (state.pendingGameOverAd) {
+      if (state.resubmitRunId) {
+        var runId = state.resubmitRunId;
+        state.resubmitRunId = null;
+        enterYourRuns(state.selectedRunIndex, runId);
+      } else if (state.pendingGameOverAd) {
         state.pendingGameOverAd = false;
         showGatedAd(returnToMenu);
       } else {
         returnToMenu();
       }
-    } else if (state.mode === STATE.LEADERBOARD) {
-      returnToMenu();
-    } else if (state.mode === STATE.PAUSED) {
-      resumeGame();
     } else if (state.mode === STATE.CONFIRM_QUIT) {
-      // '1' confirms the quit prompted by handleQuitKey.
-      showGatedAd(function () {
-        SaveGame.clear();
-        returnToMenu();
-      });
-    } else if (isActiveSimulationMode()) {
-      pauseGame();
+      if (option === 'KEEP PLAYING') {
+        state.mode = STATE.PAUSED;
+        resumeGame();
+      } else if (option === 'YES, QUIT') {
+        noteRunEnd('quit');
+        showGatedAd(function () {
+          SaveGame.clear();
+          returnToMenu();
+        });
+      }
     }
   }
 
-  // Only available while paused (not a general "abandon run" shortcut mid-
-  // gameplay) -- quitting is a deliberate choice to abandon the run, gated
-  // behind a confirmation (see handleMenuKey's CONFIRM_QUIT branch for the
-  // actual quit, and STATE.CONFIRM_QUIT's comment) so an accidental '*'
-  // press can't lose one. '*' also cancels back out of that confirmation --
-  // this same handler covers both, since main.js already routes '*' here
-  // unconditionally regardless of which of the two modes is current.
-  function handleQuitKey() {
-    if (state.mode === STATE.PAUSED) {
-      state.mode = STATE.CONFIRM_QUIT;
-    } else if (state.mode === STATE.CONFIRM_QUIT) {
-      state.mode = STATE.PAUSED;
+  // Up/down on any menu screen; wraps around at either end.
+  function handleNavKey(delta) {
+    var options = menuOptions(state);
+    if (!options) return;
+    state.menuIndex = (state.menuIndex + delta + options.length) % options.length;
+  }
+
+  // The center (Enter) key: picks the selected option, like '1'; during play
+  // it pauses, same as '1', '*' or '#'.
+  function handleSelectKey() {
+    handleMenuKey();
+  }
+
+  // '*' or '#' during play opens the pause menu; ignored everywhere else.
+  function handlePauseKey() {
+    if (isActiveSimulationMode()) pauseGame();
+  }
+
+  // '1': picks the selected option on any screen with options (menus, the
+  // pause menu, the end-of-run screens); during play it pauses.
+  function handleMenuKey() {
+    if (menuOptions(state)) {
+      activateMenuOption();
+    } else if (isActiveSimulationMode()) {
+      pauseGame();
     }
   }
 
@@ -878,26 +1174,40 @@ var Game = (function () {
     }
   }
 
-  // '*' from the menu opens the in-game (top-10) leaderboard; '*' again
-  // while already there opens the full (top-500) leaderboard in an actual
-  // browser tab -- same multi-purpose-single-key pattern used elsewhere
-  // (see handleQuitKey), gated on mutually exclusive modes.
-  function handleLeaderboardKey() {
-    if (state.mode === STATE.MENU) {
-      enterLeaderboard();
-    } else if (state.mode === STATE.LEADERBOARD) {
-      try {
-        if (typeof window !== 'undefined' && window.open) {
-          window.open('https://elliscode.com/t9-wizard/leaderboard.html', '_blank');
-        }
-      } catch (e) {
-        // Never let this break the game -- same philosophy as AudioEngine/SaveGame.
+  // The full (top-500) leaderboard, in an actual browser tab.
+  function openFullLeaderboard() {
+    try {
+      if (typeof window !== 'undefined' && window.open) {
+        window.open('https://t9-wizard.elliscode.com/leaderboard-season2.html', '_blank');
+      }
+    } catch (e) {
+      // Never let this break the game -- same philosophy as AudioEngine/SaveGame.
+    }
+  }
+
+  // selectIndex: which row to highlight (e.g. the run just viewed);
+  // reopenRunId: after a resubmission, show that run's (updated) details.
+  function enterYourRuns(selectIndex, reopenRunId) {
+    state.mode = STATE.YOUR_RUNS;
+    state.yourRuns = typeof RunHistory !== 'undefined' ? RunHistory.list() : [];
+    state.menuIndex = Math.min(selectIndex || 0, state.yourRuns.length);
+    if (reopenRunId) {
+      for (var i = 0; i < state.yourRuns.length; i++) {
+        if (state.yourRuns[i].runId === reopenRunId) { enterRunDetail(i); return; }
       }
     }
   }
 
+  function enterRunDetail(index) {
+    state.mode = STATE.RUN_DETAIL;
+    state.selectedRun = state.yourRuns[index];
+    state.selectedRunIndex = index;
+    state.menuIndex = 0;
+  }
+
   function enterLeaderboard() {
     state.mode = STATE.LEADERBOARD;
+    state.menuIndex = 0;
     state.leaderboardEntries = null;
     state.leaderboardError = null;
     if (typeof Api === 'undefined') return;
@@ -912,9 +1222,9 @@ var Game = (function () {
     });
   }
 
-  function enterNameEntry() {
+  function enterNameEntry(onName) {
     state.mode = STATE.NAME_ENTRY;
-    if (typeof NameEntry !== 'undefined') NameEntry.show(handleNameSubmitted);
+    if (typeof NameEntry !== 'undefined') NameEntry.show(onName || handleNameSubmitted);
   }
 
   // Fires once the player confirms a name in the real <input> (see
@@ -932,21 +1242,13 @@ var Game = (function () {
     return chunks.reduce(function (acc, chunk) { return acc.concat(chunk); }, []);
   }
 
-  function handleNameSubmitted(name) {
-    state.mode = STATE.SUBMITTING;
-    // Hide (and thus deactivate) the real <input> immediately, not once the
-    // request resolves -- otherwise it stays focused/active for the whole
-    // round trip, and a second Enter press in that window re-fires this
-    // same handler, sending a duplicate /submit before the first response
-    // even comes back. This runs synchronously before Api.submit() is even
-    // called, so it closes the race even against a duplicate hardware
-    // keydown event for the same physical press.
-    if (typeof NameEntry !== 'undefined') NameEntry.hide();
-    if (typeof Api === 'undefined') return;
-    var thisState = state;
-    Api.submit({
+  // Everything /submit needs except the display name. Built when a run ends
+  // (and stored for a possible resubmission -- see noteRunEnd) and again at
+  // the live submission; nothing in it changes between the two, since the
+  // simulation (and the input log) stops the moment the run ends.
+  function buildSubmitPayload() {
+    return {
       run_id: state.runId,
-      display_name: name,
       tick_count: state.tickCount,
       canvas_width: Layout.CANVAS_WIDTH,
       canvas_height: Layout.CANVAS_HEIGHT,
@@ -973,16 +1275,59 @@ var Game = (function () {
       // field and fail the whole submission.
       client_storage_write_failures: SaveGame.getStorageDiagnostics().failureCount,
       client_storage_last_error: SaveGame.getStorageDiagnostics().lastError || undefined
-    }).then(function (result) {
+    };
+  }
+
+  function handleNameSubmitted(name) {
+    var payload = buildSubmitPayload();
+    payload.display_name = name;
+    sendSubmission(payload);
+  }
+
+  // A YOUR RUNS resubmission: the payload saved when the run ended.
+  function handleResubmitName(name) {
+    var payload = typeof RunHistory !== 'undefined' ? RunHistory.loadPayload(state.resubmitRunId) : null;
+    if (!payload) {
+      state.mode = STATE.SUBMITTED;
+      state.menuIndex = 0;
+      state.submitResult = null;
+      state.submitError = "This run's data is missing";
+      if (typeof NameEntry !== 'undefined') NameEntry.hide();
+      return;
+    }
+    payload.display_name = name;
+    sendSubmission(payload);
+  }
+
+  function sendSubmission(payload) {
+    state.mode = STATE.SUBMITTING;
+    // Hide (and thus deactivate) the real <input> immediately, not once the
+    // request resolves -- otherwise it stays focused/active for the whole
+    // round trip, and a second Enter press in that window re-fires this
+    // same handler, sending a duplicate /submit before the first response
+    // even comes back. This runs synchronously before Api.submit() is even
+    // called, so it closes the race even against a duplicate hardware
+    // keydown event for the same physical press.
+    if (typeof NameEntry !== 'undefined') NameEntry.hide();
+    if (typeof Api === 'undefined') return;
+    var thisState = state;
+    var runId = payload.run_id;
+    Api.submit(payload).then(function (result) {
       if (state !== thisState) return;
       if (result.ok && result.body && result.body.score != null) {
         state.submitResult = { score: result.body.score };
         state.submitError = null;
+        if (typeof RunHistory !== 'undefined') RunHistory.markSubmitted(runId);
       } else {
         state.submitResult = null;
         state.submitError = (result.body && result.body.message) || 'Score submission failed';
+        // The server deletes a run once it's submitted, and after 7 days --
+        // a 404 means no retry can ever succeed (most likely an earlier
+        // attempt did go through and only its response was lost).
+        if (result.status === 404 && typeof RunHistory !== 'undefined') RunHistory.markGone(runId);
       }
       state.mode = STATE.SUBMITTED;
+      state.menuIndex = 0;
     });
   }
 
@@ -1015,12 +1360,17 @@ var Game = (function () {
   function applyTypingResult(result) {
     if (result.type === 'wrong') {
       if (!result.benign) {
-        state.wordCombo = 0;
         state.currentWordHadMistake = true;
         // Multiplier resets the instant a real mistake registers, not
         // deferred until the word finishes -- a mistake mid-word shouldn't
-        // still be "spending" a streak it already broke.
-        state.scoreMultiplier = 1;
+        // still be "spending" a streak it already broke. (Unless a
+        // Multiplier Shield absorbs it -- see breakStreak.) Only the first
+        // mistake on a given letter counts: hammering wrong keys on the same
+        // letter costs one shield (or one reset), not one per keypress.
+        if (!state.mistakeOnCurrentLetter) {
+          state.mistakeOnCurrentLetter = true;
+          breakStreak();
+        }
         state.errorFlash = { timerMs: ERROR_FLASH_DURATION_MS };
         if (typeof AudioEngine !== 'undefined') AudioEngine.play(SFX.ERROR);
       }
@@ -1028,6 +1378,7 @@ var Game = (function () {
     }
     if (result.type !== 'locked' && result.type !== 'progress' && result.type !== 'kill') return; // 'miss'
 
+    state.mistakeOnCurrentLetter = false; // a correct letter moves past it
     applyScoreForResult(result);
     // The *completing* keypress gets its own distinct sound instead (KILL
     // or POWERUP, played from handleKill/collectPowerup/
@@ -1097,7 +1448,7 @@ var Game = (function () {
       }
     }
     if (state.mode === STATE.PLAYING) {
-      var typable = state.enemies.concat(state.powerups);
+      var typable = state.enemies.concat(state.powerups, state.bonusWords);
       var lockedIdBefore = InputEngine.getLockedEnemyId();
       var result = InputEngine.handleDigit(digit, typable);
 
@@ -1106,7 +1457,12 @@ var Game = (function () {
       // whatever's actually locked (or just got locked/killed) is an enemy.
       var scoringTargetId = (result.type === 'locked' || result.type === 'kill') ? result.enemyId : lockedIdBefore;
       var targetIsPowerup = scoringTargetId !== null && state.powerups.some(function (p) { return p.id === scoringTargetId; });
-      if (!targetIsPowerup) {
+      var targetIsBonus = scoringTargetId !== null && state.bonusWords.some(function (b) { return b.id === scoringTargetId; });
+      if (targetIsBonus && result.type === 'wrong') {
+        // A typo on a bonus word is free, same as on a powerup word: no
+        // shield spent, no multiplier reset, no mistake flash. Correct
+        // letters still score normally (below).
+      } else if (!targetIsPowerup) {
         applyTypingResult(result);
       } else if ((result.type === 'locked' || result.type === 'progress') && typeof AudioEngine !== 'undefined') {
         // Powerups skip applyTypingResult entirely (no score to add), but a
@@ -1119,6 +1475,8 @@ var Game = (function () {
       if (result.type === 'kill') {
         if (targetIsPowerup) {
           collectPowerup(result.enemyId);
+        } else if (state.bonusWords.some(function (b) { return b.id === result.enemyId; })) {
+          handleBonusKill(result.enemyId);
         } else {
           handleKill(result.enemyId);
         }
@@ -1160,6 +1518,7 @@ var Game = (function () {
           state.simAccumulator -= TICK_MS;
           state.tickCount += 1;
         }
+        noteRunEndIfNeeded();
       }
     }
     Render.renderFrame(ctx, state);
@@ -1238,9 +1597,12 @@ var Game = (function () {
     restored.nextEntityId = saved.nextEntityId;
     restored.enemies = saved.enemies || [];
     restored.powerups = saved.powerups || [];
+    restored.bonusWords = saved.bonusWords || [];
     restored.boss = saved.boss || null;
     restored.halfSpeedRemainingMs = saved.halfSpeedRemainingMs || 0;
     restored.halfLengthRemainingMs = saved.halfLengthRemainingMs || 0;
+    restored.timeFreezeRemainingMs = saved.timeFreezeRemainingMs || 0;
+    restored.multiplierShields = saved.multiplierShields || 0;
     restored.usedSentences = saved.usedSentences || {};
     // See save.js's comment on these three -- each affects exactly which
     // tick something happens on (a spawn, a wave transition), so silently
@@ -1262,6 +1624,7 @@ var Game = (function () {
     restored.scoreMultiplier = saved.scoreMultiplier || 1;
     restored.wordCombo = saved.wordCombo || 0;
     restored.currentWordHadMistake = !!saved.currentWordHadMistake;
+    restored.mistakeOnCurrentLetter = !!saved.mistakeOnCurrentLetter;
     // Restore the RNG's exact live generator position (not just re-seed) so
     // post-resume randomness continues the same sequence a from-scratch
     // replay of this seed + input log would produce, instead of restarting
@@ -1284,6 +1647,14 @@ var Game = (function () {
   function init(canvas) {
     ctx = canvas.getContext('2d');
     var saved = SaveGame.load();
+    // A run saved by a different build (including any pre-3.2 save, which
+    // never recorded a version) is discarded rather than resumed: it was
+    // played under that build's rules and season, so it couldn't be
+    // replayed or submitted correctly by this one.
+    if (saved && saved.gameVersion !== Render.GAME_VERSION) {
+      SaveGame.clear();
+      saved = null;
+    }
     state = saved ? restoreStateFromSave(saved) : makeInitialState();
     // Pause proactively the instant the page is hidden, rather than relying
     // solely on next-frame dt measurement — closes a race where a "resume"
@@ -1309,12 +1680,21 @@ var Game = (function () {
     BOSS_SEGMENT_WIDTH: BOSS_SEGMENT_WIDTH,
     BOSS_SEGMENT_GAP: BOSS_SEGMENT_GAP,
     BOSS_SEGMENT_PADDING: BOSS_SEGMENT_PADDING,
+    menuOptions: menuOptions,
+    runStatus: runStatus,
     init: init,
-    handleDigitKey: handleDigitKey,
+    // The real-keypress path (main.js). A keypress can itself end a run --
+    // the last letter of a world-5 boss sentence -- so it checks for a run
+    // end here, outside the internal handleDigitKey that replayRun shares.
+    handleDigitKey: function (digit) {
+      handleDigitKey(digit);
+      noteRunEndIfNeeded();
+    },
     handleMenuKey: handleMenuKey,
+    handleNavKey: handleNavKey,
+    handleSelectKey: handleSelectKey,
+    handlePauseKey: handlePauseKey,
     handleBossRushKey: handleBossRushKey,
-    handleQuitKey: handleQuitKey,
-    handleLeaderboardKey: handleLeaderboardKey,
     getWordLengthRangeForWave: getWordLengthRangeForWave,
     worldOfWave: worldOfWave,
     waveInWorld: waveInWorld,

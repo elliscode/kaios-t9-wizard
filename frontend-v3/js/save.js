@@ -36,6 +36,10 @@ var SaveGame = (function () {
 
     var payload = {
       saveVersion: SAVE_VERSION,
+      // The build that wrote this save -- Game.init discards a save from any
+      // other version instead of resuming it. Render isn't loaded in the
+      // replay Lambda's sandbox, where saves are never read anyway.
+      gameVersion: typeof Render !== 'undefined' ? Render.GAME_VERSION : null,
       resumeMode: resumeMode,
       wave: state.wave,
       lives: state.lives,
@@ -45,9 +49,12 @@ var SaveGame = (function () {
       nextEntityId: state.nextEntityId,
       enemies: state.enemies,
       powerups: state.powerups,
+      bonusWords: state.bonusWords,
       boss: state.boss,
       halfSpeedRemainingMs: state.halfSpeedRemainingMs,
       halfLengthRemainingMs: state.halfLengthRemainingMs,
+      timeFreezeRemainingMs: state.timeFreezeRemainingMs,
+      multiplierShields: state.multiplierShields,
       usedSentences: state.usedSentences,
       // Every one of these three feeds directly into *when* things happen
       // tick-by-tick (spawnAccumulator controls exactly which tick the next
@@ -80,6 +87,7 @@ var SaveGame = (function () {
       scoreMultiplier: state.scoreMultiplier,
       wordCombo: state.wordCombo,
       currentWordHadMistake: state.currentWordHadMistake,
+      mistakeOnCurrentLetter: state.mistakeOnCurrentLetter,
       // The RNG's live generator position, not just the seed -- resuming
       // must continue the same random sequence a from-scratch replay of
       // this seed + input log would produce, not restart it.
