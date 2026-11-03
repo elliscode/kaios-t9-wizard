@@ -1,9 +1,9 @@
 {
   "name": "T9 Wizard",
   "version": "3.1.10",
-  "package_path": "https://github.com/elliscode/kaios-t9-wizard/releases/download/v3.1.10/t9-wizard-3.1.10.zip",
-  "packaged_size": 113187,
-  "size": 113187,
+  "package_path": "https://github.com/Garbagebuild/JScalated-Store/releases/download/jscalated-apps-1/T9-Wizard-3.1.10.zip",
+  "packaged_size": 118006,
+  "size": 118006,
   "type": "web",
   "b2g_features": {
     "subtitle": "Learn T9 the fun way!",

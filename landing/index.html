@@ -406,16 +406,16 @@
     .season-actions { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px; padding-top: 8px; }
     .text-link { font-family: var(--font-pixel); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
 
-    .season-1 { border-color: rgba(255, 201, 60, 0.55); box-shadow: 0 0 40px rgba(255, 201, 60, 0.12); }
+    .season-1 { border-color: rgba(255, 201, 60, 0.35); }
     .season-1 .season-strip {
       background:
         radial-gradient(ellipse at 50% 120%, rgba(255, 201, 60, 0.35), rgba(255, 201, 60, 0) 60%),
         linear-gradient(160deg, #2a1650, #120a24);
     }
-    .season-1 .badge { color: var(--slime); background: rgba(116, 240, 74, 0.12); border: 1px solid rgba(116, 240, 74, 0.5); }
+    .season-1 .badge { color: var(--muted); background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.2); }
     .season-1 li::before { background: var(--gold); }
 
-    .season-2 { border-color: rgba(191, 233, 255, 0.4); background: linear-gradient(180deg, rgba(14, 22, 44, 0.92), rgba(18, 10, 36, 0.92)); }
+    .season-2 { border-color: rgba(191, 233, 255, 0.55); box-shadow: 0 0 40px rgba(191, 233, 255, 0.14); background: linear-gradient(180deg, rgba(14, 22, 44, 0.92), rgba(18, 10, 36, 0.92)); }
     .season-2 .season-strip {
       background:
         radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.5) 0 1.5px, transparent 2px),
@@ -427,14 +427,7 @@
         linear-gradient(160deg, #0f2238, #0b0716);
       background-size: 120px 120px, 160px 160px, 140px 140px, 180px 180px, 110px 110px, 100% 100%, 100% 100%;
     }
-    .season-2 .season-strip .shot { filter: saturate(0.85) brightness(0.9); border-color: rgba(191, 233, 255, 0.35); }
-    .season-2 .season-strip::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse at 50% 50%, rgba(11, 7, 22, 0) 45%, rgba(11, 7, 22, 0.75) 100%);
-      pointer-events: none;
-    }
+    .season-2 .season-strip .shot { border-color: rgba(191, 233, 255, 0.35); }
     .season-2 .badge { color: var(--frost); background: rgba(191, 233, 255, 0.1); border: 1px solid rgba(191, 233, 255, 0.45); }
     .season-2 li::before { background: var(--holly); box-shadow: 4px 4px 0 var(--xmas-red); width: 7px; height: 7px; }
     .season-2 .season-num { color: var(--frost); }
@@ -809,34 +802,6 @@
           </div>
 
           <div class="seasons">
-            <article class="card season season-1" aria-labelledby="s1-title">
-              <div class="season-strip">
-                <img class="shot" src="images/season1-02.png" width="240" height="320" loading="lazy"
-                  alt="Season 1, World 3: a crowd of gold and orange word blocks such as prayer, museum, gossip and chamber." />
-                <img class="shot" src="images/season1-04.png" width="240" height="320" loading="lazy"
-                  alt="Season 1, World 5 boss: a long pink boss block with a falling sentence from Moby Dick, partly typed." />
-                <img class="shot" src="images/season1-05.png" width="240" height="320" loading="lazy"
-                  alt="Season 1 win screen: YOU WIN, all 5 worlds cleared, score 76633." />
-              </div>
-              <div class="season-body">
-                <div class="season-meta">
-                  <span class="season-num">SEASON 01</span>
-                  <span class="badge">AVAILABLE</span>
-                </div>
-                <h3 id="s1-title">The Beginning</h3>
-                <p>Where every T9 Wizard starts. Learn the keypad, build your multiplier, and fight your way through the full run.</p>
-                <ul>
-                  <li>Five worlds of ten waves, with words growing from two letters to twelve</li>
-                  <li>A typing boss at the end of every world, quoting classic novels</li>
-                  <li>A global leaderboard of the best Season 1 runs</li>
-                </ul>
-                <div class="season-actions">
-                  <a class="btn js-play" href="#video">Play Season 1</a>
-                  <a class="text-link" href="https://elliscode.com/t9-wizard/leaderboard.html">Season 1 leaderboard →</a>
-                </div>
-              </div>
-            </article>
-
             <article class="card season season-2" aria-labelledby="s2-title">
               <div class="season-strip">
                 <img class="shot" src="images/season2-a.png" width="240" height="320" loading="lazy"
@@ -849,19 +814,47 @@
               <div class="season-body">
                 <div class="season-meta">
                   <span class="season-num">SEASON 02</span>
-                  <span class="badge">COMING SOON</span>
+                  <span class="badge">AVAILABLE NOW</span>
                 </div>
                 <h3 id="s2-title">The Next Challenge</h3>
-                <p>The next chapter is on its way. Sharpen your typing skills, prepare your keypad, and get ready for more magical mayhem. This time, it's a holiday season.</p>
+                <p>The next chapter is here. Sharpen your typing skills, warm up your keypad, and dive into more magical mayhem. This time, it's a holiday season.</p>
                 <ul>
                   <li>Christmas words join the horde: sleigh, mistletoe, gingerbread and hundreds more</li>
                   <li>Enemies glow evergreen to Christmas red as the words get longer</li>
                   <li>New powerups: Multiplier Shield, Bonus Words and Time Freeze</li>
                   <li>Bosses quote <cite>A Christmas Carol</cite>, <cite>The Gift of the Magi</cite> and <cite>'Twas the Night Before Christmas</cite></li>
-                  <li>A brand-new leaderboard</li>
+                  <li>A brand-new leaderboard, open now</li>
                 </ul>
                 <div class="season-actions">
-                  <span class="soon" role="note">❄ Season 2 Coming Soon</span>
+                  <a class="btn js-play" href="#video">Play Season 2</a>
+                  <a class="text-link" href="leaderboard-season2.html">Season 2 leaderboard →</a>
+                </div>
+              </div>
+            </article>
+
+            <article class="card season season-1" aria-labelledby="s1-title">
+              <div class="season-strip">
+                <img class="shot" src="images/season1-02.png" width="240" height="320" loading="lazy"
+                  alt="Season 1, World 3: a crowd of gold and orange word blocks such as prayer, museum, gossip and chamber." />
+                <img class="shot" src="images/season1-04.png" width="240" height="320" loading="lazy"
+                  alt="Season 1, World 5 boss: a long pink boss block with a falling sentence from Moby Dick, partly typed." />
+                <img class="shot" src="images/season1-05.png" width="240" height="320" loading="lazy"
+                  alt="Season 1 win screen: YOU WIN, all 5 worlds cleared, score 76633." />
+              </div>
+              <div class="season-body">
+                <div class="season-meta">
+                  <span class="season-num">SEASON 01</span>
+                  <span class="badge">PAST SEASON</span>
+                </div>
+                <h3 id="s1-title">The Beginning</h3>
+                <p>Where every T9 Wizard started. The first run through the keypad, the multiplier and all five worlds.</p>
+                <ul>
+                  <li>Five worlds of ten waves, with words growing from two letters to twelve</li>
+                  <li>A typing boss at the end of every world, quoting classic novels</li>
+                  <li>Its leaderboard stays up as the record of the best Season 1 runs</li>
+                </ul>
+                <div class="season-actions">
+                  <a class="text-link" href="https://elliscode.com/t9-wizard/leaderboard.html">Season 1 leaderboard →</a>
                 </div>
               </div>
             </article>
@@ -993,6 +986,7 @@
           <ul>
             <li><a href="https://www.youtube.com/watch?v=vKPr1BCMCac" target="_blank" rel="noopener">Gameplay video</a></li>
             <li><a class="js-play" href="#video">Get it on the KaiStore</a></li>
+            <li><a href="leaderboard-season2.html">Season 2 leaderboard</a></li>
             <li><a href="https://elliscode.com/t9-wizard/leaderboard.html">Season 1 leaderboard</a></li>
             <li><a href="https://www.elliscode.com/">elliscode.com</a></li>
             <li><a href="https://github.com/elliscode" target="_blank" rel="noopener">GitHub</a></li>
