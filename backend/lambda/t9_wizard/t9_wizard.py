@@ -200,8 +200,35 @@ def submit_route(event, version):
     # a game over are legitimate, submittable outcomes -- a high score
     # reached without clearing all 5 worlds is still a real result worth
     # showing on the leaderboard.
-    if replay.get("mode") not in ("win", "gameover"):
-        return format_response(event=event, http_code=400, body="Run did not reach a valid end state")
+    #
+    # One tolerated exception: a replay that stopped short of a terminal
+    # state but whose score still matches what the client computed. Season
+    # 1 and 2 clients have a known off-by-one (see docs/v3-todo.md) where a
+    # run resumed from a mid-tick save ends up one tick ahead of its own
+    # tickCount, so the replay stops one tick before the final, run-ending
+    # hit -- same score, same wave, but lives=1 and mode='playing' instead
+    # of lives=0/'gameover'. Accepting these can't inflate anything: the
+    # leaderboard still only ever records replay["score"], and with no
+    # further input after tick_count no more score can be earned anyway. A
+    # client without client_score (old build) still gets the strict check.
+    replay_ended = replay.get("mode") in ("win", "gameover")
+    score_matches = score_diff is not None and score_diff <= SCORE_MISMATCH_THRESHOLD
+    if not replay_ended:
+        if not score_matches:
+            return format_response(event=event, http_code=400, body="Run did not reach a valid end state")
+        log(
+            {
+                "event": "ACCEPTED_UNFINISHED_REPLAY",
+                "run_id": run_id,
+                "version": game_version,
+                "display_name": validated["display_name"],
+                "score": server_score,
+                "mode": replay.get("mode"),
+                "client_lives": client_lives,
+                "server_lives": server_lives,
+                "tick_count": validated["tick_count"],
+            }
+        )
 
     score = replay["score"]
     # Own test/promo runs (see ADMIN_DISPLAY_NAMES) never touch the public
